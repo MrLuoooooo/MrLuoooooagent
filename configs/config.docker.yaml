@@ -1,0 +1,57 @@
+# GoAgent Pro — Docker 部署配置（Ollama 宿主机模式）
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "release"
+
+auth:
+  api_key: ""
+
+model_provider:
+  mode: "auto"
+  embedding_dimension: 768
+  timeout: 300s
+
+  local:
+    enabled: true
+    base_url: "http://host.docker.internal:11434"
+    chat_model: "qwen3.5:9b"
+    embedding_model: "nomic-embed-text"
+
+  cloud:
+    enabled: false
+    type: "openai"
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    chat_model: ""
+    embedding_model: ""
+
+vector_store:
+  type: "elasticsearch"
+  elasticsearch:
+    addresses:
+      - "http://elasticsearch:9200"
+    index_name: "goagent_vectors"
+    username: ""
+    password: ""
+
+document:
+  max_file_size: 10485760
+  allowed_types:
+    - ".pdf"
+    - ".txt"
+    - ".md"
+  chunk_size: 500
+  chunk_overlap: 50
+
+conversation:
+  max_history: 20
+  storage_type: "memory"
+
+log:
+  level: "info"
+  file_path: "/var/log/goagent/app.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true
