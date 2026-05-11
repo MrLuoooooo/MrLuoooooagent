@@ -26,3 +26,10 @@ export function getConversationMessages(id: string): Promise<{
 }> {
   return apiFetch(`/conversations/${id}/messages`)
 }
+
+/** 删除会话 */
+export function deleteConversation(id: string): Promise<{ conversation_id: string }> {
+  return apiFetch(`/conversations/${id}`, {
+    method: 'DELETE',
+  })
+}

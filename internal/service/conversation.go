@@ -9,15 +9,13 @@ import (
 )
 
 // ConversationService wraps the conversation store.
-// This layer exists for consistency across services and to host future
-// business logic (e.g. conversation-level rate limiting, archival).
 type ConversationService struct {
-	store  *store.ConversationMemory
+	store  *store.ESConversationStore
 	logger *zap.Logger
 }
 
 // NewConversationService creates a ConversationService.
-func NewConversationService(s *store.ConversationMemory, logger *zap.Logger) *ConversationService {
+func NewConversationService(s *store.ESConversationStore, logger *zap.Logger) *ConversationService {
 	return &ConversationService{store: s, logger: logger}
 }
 
@@ -31,15 +29,20 @@ type ConversationMeta struct {
 }
 
 // Create creates a new conversation and returns its ID.
-func (s *ConversationService) Create(ctx context.Context, title string) string {
+func (s *ConversationService) Create(ctx context.Context, title string) (string, error) {
 	id := store.NewConversationID()
-	s.store.Create(ctx, id, title)
-	return id
+	if err := s.store.Create(ctx, id, title); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // List returns all conversations, newest first.
-func (s *ConversationService) List(ctx context.Context) []ConversationMeta {
-	metas := s.store.List(ctx)
+func (s *ConversationService) List(ctx context.Context) ([]ConversationMeta, error) {
+	metas, err := s.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]ConversationMeta, len(metas))
 	for i, m := range metas {
 		result[i] = ConversationMeta{
@@ -50,7 +53,7 @@ func (s *ConversationService) List(ctx context.Context) []ConversationMeta {
 			UpdatedAt:    m.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 	}
-	return result
+	return result, nil
 }
 
 // LoadMessages returns messages for a conversation.
@@ -61,4 +64,9 @@ func (s *ConversationService) LoadMessages(ctx context.Context, id string) ([]*s
 // SaveMessages appends messages to a conversation.
 func (s *ConversationService) SaveMessages(ctx context.Context, id string, msgs []*schema.Message) error {
 	return s.store.Save(ctx, id, msgs)
+}
+
+// Delete deletes a conversation and its messages.
+func (s *ConversationService) Delete(ctx context.Context, id string) error {
+	return s.store.Delete(ctx, id)
 }

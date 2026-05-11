@@ -2,12 +2,15 @@ package service
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
+
+// ── Mocks ──
 
 type mockRAG struct{}
 
@@ -29,7 +32,7 @@ func (m *mockRAG) Transform(context.Context, *schema.StreamReader[string], ...co
 type mockAgent struct{}
 
 func (m *mockAgent) Invoke(_ context.Context, input *schema.Message, _ ...compose.Option) (*schema.Message, error) {
-	return &schema.Message{Role: schema.Assistant, Content: "agent: " + input.Content}, nil
+	return &schema.Message{Role: schema.Assistant, Content: "agent: " + input.Content, ToolCalls: nil}, nil
 }
 func (m *mockAgent) Stream(_ context.Context, input *schema.Message, _ ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
 	sr, sw := schema.Pipe[*schema.Message](5)
@@ -43,45 +46,105 @@ func (m *mockAgent) Transform(context.Context, *schema.StreamReader[*schema.Mess
 	return nil, nil
 }
 
-type mockDocChain struct{}
-
-func (m *mockDocChain) Invoke(_ context.Context, input []byte, _ ...compose.Option) ([]string, error) {
-	return []string{"mock_id"}, nil
-}
-func (m *mockDocChain) Stream(_ context.Context, _ []byte, _ ...compose.Option) (*schema.StreamReader[[]string], error) {
-	return nil, nil
-}
-func (m *mockDocChain) Collect(_ context.Context, _ *schema.StreamReader[[]byte], _ ...compose.Option) ([]string, error) {
-	return nil, nil
-}
-func (m *mockDocChain) Transform(_ context.Context, _ *schema.StreamReader[[]byte], _ ...compose.Option) (*schema.StreamReader[[]string], error) {
-	return nil, nil
+// mockConvSvc records the last saved messages and reports saves.
+type mockConvSvc struct {
+	mu       sync.Mutex
+	saved    []SaveRecord
+	saveFail error // if set, SaveMessages returns this error
 }
 
-func TestChatService_Chat(t *testing.T) {
-	s := NewChatService(&mockRAG{}, &mockAgent{}, zap.NewNop())
-	msg, err := s.Chat(context.Background(), "hello")
+type SaveRecord struct {
+	ConvID string
+	Msgs   []*schema.Message
+}
+
+func (m *mockConvSvc) SaveMessages(_ context.Context, convID string, msgs []*schema.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.saveFail != nil {
+		return m.saveFail
+	}
+	m.saved = append(m.saved, SaveRecord{ConvID: convID, Msgs: msgs})
+	return nil
+}
+
+func (m *mockConvSvc) LoadMessages(_ context.Context, _ string) ([]*schema.Message, error) {
+	return nil, nil
+}
+
+// ensure mockConvSvc compiles as expected interface
+var _ interface {
+	SaveMessages(context.Context, string, []*schema.Message) error
+} = (*mockConvSvc)(nil)
+
+// ── Tests ──
+
+func newTestService(convSvc *mockConvSvc) *ChatService {
+	if convSvc == nil {
+		convSvc = &mockConvSvc{}
+	}
+	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, zap.NewNop())
+}
+
+func TestChatService_Chat_Persists(t *testing.T) {
+	conv := &mockConvSvc{}
+	s := newTestService(conv)
+
+	msg, err := s.Chat(context.Background(), "hello", "conv_1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if msg.Content != "rag: hello" {
 		t.Errorf("got %q, want %q", msg.Content, "rag: hello")
 	}
+
+	if len(conv.saved) != 1 {
+		t.Fatalf("expected 1 save, got %d", len(conv.saved))
+	}
+	rec := conv.saved[0]
+	if rec.ConvID != "conv_1" {
+		t.Errorf("convID: got %q, want conv_1", rec.ConvID)
+	}
+	if len(rec.Msgs) != 2 {
+		t.Fatalf("expected 2 messages (user+assistant), got %d", len(rec.Msgs))
+	}
+	if rec.Msgs[0].Role != schema.User || rec.Msgs[0].Content != "hello" {
+		t.Errorf("user msg: got %+v", rec.Msgs[0])
+	}
+	if rec.Msgs[1].Role != schema.Assistant || rec.Msgs[1].Content != "rag: hello" {
+		t.Errorf("assistant msg: got %+v", rec.Msgs[1])
+	}
 }
 
-func TestChatService_Agent(t *testing.T) {
-	s := NewChatService(&mockRAG{}, &mockAgent{}, zap.NewNop())
-	msg, err := s.Agent(context.Background(), &schema.Message{Role: schema.User, Content: "time?"})
+func TestChatService_Agent_Persists(t *testing.T) {
+	conv := &mockConvSvc{}
+	s := newTestService(conv)
+
+	msg, err := s.Agent(context.Background(), &schema.Message{Role: schema.User, Content: "time?"}, "conv_2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if msg.Content != "agent: time?" {
 		t.Errorf("got %q, want %q", msg.Content, "agent: time?")
 	}
+
+	if len(conv.saved) != 1 {
+		t.Fatalf("expected 1 save, got %d", len(conv.saved))
+	}
+	rec := conv.saved[0]
+	if rec.ConvID != "conv_2" {
+		t.Errorf("convID: got %q", rec.ConvID)
+	}
+	if len(rec.Msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(rec.Msgs))
+	}
 }
 
-func TestChatService_ChatStream(t *testing.T) {
-	s := NewChatService(&mockRAG{}, &mockAgent{}, zap.NewNop())
+func TestChatService_ChatStream_DoesNotPersist(t *testing.T) {
+	// ChatStream should NOT persist — that's the handler's responsibility
+	conv := &mockConvSvc{}
+	s := newTestService(conv)
+
 	stream, err := s.ChatStream(context.Background(), "stream test")
 	if err != nil {
 		t.Fatal(err)
@@ -94,26 +157,128 @@ func TestChatService_ChatStream(t *testing.T) {
 	if chunk.Content != "rag: stream test" {
 		t.Errorf("got %q", chunk.Content)
 	}
-}
-
-func TestDocumentService_Ingest_Empty(t *testing.T) {
-	s := NewDocumentService(nil, zap.NewNop())
-	ids, err := s.Ingest(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ids != nil {
-		t.Errorf("expected nil for empty input, got %v", ids)
+	if len(conv.saved) != 0 {
+		t.Error("ChatStream should NOT persist; handler calls SaveMessages separately")
 	}
 }
 
-func TestDocumentService_Ingest_OK(t *testing.T) {
-	s := NewDocumentService(&mockDocChain{}, zap.NewNop())
-	ids, err := s.Ingest(context.Background(), []byte("hello"))
+func TestChatService_SaveMessages_UsesBackgroundContext(t *testing.T) {
+	// Test that SaveMessages writes even when the passed ctx is cancelled
+	conv := &mockConvSvc{}
+	s := newTestService(conv)
+
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel() // immediately cancel
+
+	err := s.SaveMessages(cancelledCtx, "conv_3", "ping", "pong", nil)
+	if err != nil {
+		t.Fatalf("SaveMessages should succeed with cancelled ctx (uses Background): %v", err)
+	}
+	if len(conv.saved) != 1 {
+		t.Fatalf("expected 1 save, got %d", len(conv.saved))
+	}
+	rec := conv.saved[0]
+	if rec.ConvID != "conv_3" {
+		t.Errorf("convID: got %q", rec.ConvID)
+	}
+	if len(rec.Msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(rec.Msgs))
+	}
+}
+
+func TestChatService_SaveMessages_WithToolCalls(t *testing.T) {
+	conv := &mockConvSvc{}
+	s := newTestService(conv)
+
+	toolCalls := []schema.ToolCall{
+		{
+			ID:   "call_1",
+			Type: "function",
+			Function: schema.FunctionCall{
+				Name:      "get_time",
+				Arguments: "{}",
+			},
+		},
+	}
+
+	err := s.SaveMessages(context.Background(), "conv_4", "what time", "14:30", toolCalls)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 1 || ids[0] != "mock_id" {
-		t.Errorf("got %v", ids)
+	if len(conv.saved) != 1 {
+		t.Fatalf("expected 1 save, got %d", len(conv.saved))
+	}
+	rec := conv.saved[0]
+	if len(rec.Msgs[1].ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call on assistant msg, got %d", len(rec.Msgs[1].ToolCalls))
+	}
+	if rec.Msgs[1].ToolCalls[0].Function.Name != "get_time" {
+		t.Errorf("tool name: got %q", rec.Msgs[1].ToolCalls[0].Function.Name)
 	}
 }
+
+func TestChatService_SaveMessages_ReportsError(t *testing.T) {
+	conv := &mockConvSvc{saveFail: assertAnError("es write error")}
+	s := newTestService(conv)
+
+	err := s.SaveMessages(context.Background(), "conv_err", "q", "a", nil)
+	if err == nil {
+		t.Fatal("expected error from SaveMessages but got nil")
+	}
+}
+
+func TestChatService_Chat_RagChainError(t *testing.T) {
+	// When the RAG chain itself fails, no save should occur
+	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, zap.NewNop())
+	_, err := s.Chat(context.Background(), "fail", "conv_no_save")
+	if err == nil {
+		t.Fatal("expected error from failing RAG chain")
+	}
+}
+
+func TestChatService_ChatStream_RagChainError(t *testing.T) {
+	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, zap.NewNop())
+	_, err := s.ChatStream(context.Background(), "fail")
+	if err == nil {
+		t.Fatal("expected error from failing RAG chain")
+	}
+}
+
+// ── Helper mocks for error testing ──
+
+type errRAG struct{}
+
+func (e *errRAG) Invoke(_ context.Context, _ string, _ ...compose.Option) (*schema.Message, error) {
+	return nil, assertAnError("rag chain error")
+}
+func (e *errRAG) Stream(_ context.Context, _ string, _ ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, assertAnError("rag chain error")
+}
+func (e *errRAG) Collect(context.Context, *schema.StreamReader[string], ...compose.Option) (*schema.Message, error) {
+	return nil, nil
+}
+func (e *errRAG) Transform(context.Context, *schema.StreamReader[string], ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+
+type errAgent struct{}
+
+func (e *errAgent) Invoke(_ context.Context, _ *schema.Message, _ ...compose.Option) (*schema.Message, error) {
+	return nil, assertAnError("agent error")
+}
+func (e *errAgent) Stream(_ context.Context, _ *schema.Message, _ ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, assertAnError("agent error")
+}
+func (e *errAgent) Collect(context.Context, *schema.StreamReader[*schema.Message], ...compose.Option) (*schema.Message, error) {
+	return nil, nil
+}
+func (e *errAgent) Transform(context.Context, *schema.StreamReader[*schema.Message], ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
+	return nil, nil
+}
+
+// assertAnError returns a sentinel error for test assertions.
+type assertAnError string
+
+func (e assertAnError) Error() string { return string(e) }

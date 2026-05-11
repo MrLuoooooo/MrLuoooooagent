@@ -70,6 +70,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("vector_store.type", "elasticsearch")
 	v.SetDefault("vector_store.elasticsearch.addresses", []string{"http://localhost:9200"})
 	v.SetDefault("vector_store.elasticsearch.index_name", "goagent_vectors")
+	v.SetDefault("vector_store.elasticsearch.conv_index_name", "goagent_conversations")
+	v.SetDefault("vector_store.elasticsearch.conv_msg_index_name", "goagent_conv_messages")
 
 	v.SetDefault("document.max_file_size", 10485760)
 	v.SetDefault("document.allowed_types", []string{".pdf", ".txt", ".md"})

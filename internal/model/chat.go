@@ -30,9 +30,10 @@ type StreamEvent struct {
 }
 
 const (
-	EventToken     = "token"
-	EventToolCall  = "tool_call"
-	EventToolResult = "tool_result"
-	EventDone      = "done"
-	EventError     = "error"
+	EventToken           = "token"
+	EventToolCall        = "tool_call"
+	EventToolResult      = "tool_result"
+	EventDone            = "done"
+	EventError           = "error"
+	EventConversationID  = "conversation_id"
 )

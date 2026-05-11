@@ -63,10 +63,12 @@ type VectorStoreConfig struct {
 
 // ElasticsearchConfig holds Elasticsearch configuration.
 type ElasticsearchConfig struct {
-	Addresses []string `mapstructure:"addresses"`
-	IndexName string   `mapstructure:"index_name"`
-	Username  string   `mapstructure:"username"`
-	Password  string   `mapstructure:"password"`
+	Addresses        []string `mapstructure:"addresses"`
+	IndexName        string   `mapstructure:"index_name"`
+	Username         string   `mapstructure:"username"`
+	Password         string   `mapstructure:"password"`
+	ConvIndexName    string   `mapstructure:"conv_index_name"`
+	ConvMsgIndexName string   `mapstructure:"conv_msg_index_name"`
 }
 
 // DocumentConfig holds document processing configuration.

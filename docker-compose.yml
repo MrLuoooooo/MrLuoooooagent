@@ -33,6 +33,18 @@ services:
     volumes:
       - app_logs:/var/log/goagent
 
+  web:
+    image: nginx:latest
+    container_name: goagent-web
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
 volumes:
   es_data:
   app_logs:

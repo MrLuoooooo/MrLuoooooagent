@@ -45,6 +45,7 @@ func NewRouter(
 		v1.POST("/documents", docH.UploadDocument)
 		v1.DELETE("/documents/:document_id", docH.DeleteDocument)
 		v1.GET("/documents", docH.ListDocuments)
+		v1.DELETE("/conversations/:conversation_id", convH.DeleteConversation)
 	}
 
 	return engine

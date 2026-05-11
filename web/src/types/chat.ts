@@ -8,7 +8,7 @@ export interface ChatRequest {
 
 /** SSE 流式事件 */
 export interface StreamEvent {
-  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error'
+  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id'
   content?: string
   tool?: string
 }

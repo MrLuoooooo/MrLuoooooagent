@@ -39,3 +39,8 @@ type GetMessagesResponse struct {
 	Total          int           `json:"total"`
 	Messages       []MessageItem `json:"messages"`
 }
+
+// DeleteConversationResponse is the response from deleting a conversation.
+type DeleteConversationResponse struct {
+	ConversationID string `json:"conversation_id"`
+}

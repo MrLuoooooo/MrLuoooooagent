@@ -23,9 +23,13 @@ func NewConversationHandler(svc *service.ConversationService) *ConversationHandl
 func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	var req model.CreateConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		req.Title = "New Conversation"
+		req.Title = "新会话"
 	}
-	id := h.svc.Create(c.Request.Context(), req.Title)
+	id, err := h.svc.Create(c.Request.Context(), req.Title)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
+		return
+	}
 	c.JSON(http.StatusOK, model.OK(model.CreateConversationResponse{
 		ConversationID: id,
 		Title:          req.Title,
@@ -35,7 +39,11 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 
 // ListConversations handles GET /api/v1/conversations.
 func (h *ConversationHandler) ListConversations(c *gin.Context) {
-	convs := h.svc.List(c.Request.Context())
+	convs, err := h.svc.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
+		return
+	}
 	items := make([]model.ConversationItem, len(convs))
 	for i, m := range convs {
 		items[i] = model.ConversationItem{
@@ -65,5 +73,17 @@ func (h *ConversationHandler) GetMessages(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, model.OK(model.GetMessagesResponse{
 		ConversationID: convID, Total: len(items), Messages: items,
+	}))
+}
+
+// DeleteConversation handles DELETE /api/v1/conversations/:conversation_id.
+func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
+	convID := c.Param("conversation_id")
+	if err := h.svc.Delete(c.Request.Context(), convID); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.OK(model.DeleteConversationResponse{
+		ConversationID: convID,
 	}))
 }

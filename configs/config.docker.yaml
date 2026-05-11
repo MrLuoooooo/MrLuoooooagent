@@ -32,6 +32,8 @@ vector_store:
     addresses:
       - "http://elasticsearch:9200"
     index_name: "goagent_vectors"
+    conv_index_name: "goagent_conversations"
+    conv_msg_index_name: "goagent_conv_messages"
     username: ""
     password: ""
 
@@ -46,7 +48,7 @@ document:
 
 conversation:
   max_history: 20
-  storage_type: "memory"
+  storage_type: "es"
 
 log:
   level: "info"

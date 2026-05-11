@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback } from 'react'
-import type { Message, ChatStatus, ToolCall } from '../types/chat'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import type { Message, ChatStatus, ToolCall, StreamEvent } from '../types/chat'
 import { chatStream } from '../api/chat'
 
 interface UseChatStreamReturn {
@@ -10,11 +10,16 @@ interface UseChatStreamReturn {
   sendMessage: (conversationId: string, text: string) => void
   cancel: () => void
   clear: () => void
+  setInitialMessages: (msgs: Message[]) => void
 }
 
 let msgCounter = 0
+let streamIdCounter = 0
 function nextId(): string {
   return `msg_${++msgCounter}_${Date.now()}`
+}
+function nextStreamId(): number {
+  return ++streamIdCounter
 }
 
 export function useChatStream(): UseChatStreamReturn {
@@ -23,18 +28,39 @@ export function useChatStream(): UseChatStreamReturn {
   const [error, setError] = useState<string | null>(null)
   const [toolCalls, setToolCalls] = useState<ToolCall[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  const statusRef = useRef<ChatStatus>('idle')
+  const streamIdRef = useRef(0)
+
+  // Keep statusRef in sync
+  useEffect(() => { statusRef.current = status }, [status])
 
   const currentAssistantRef = useRef<Message | null>(null)
+  const onNewConversationRef = useRef<((id: string) => void) | null>(null)
+
+  const setInitialMessages = useCallback((msgs: Message[]) => {
+    streamIdRef.current = 0 // 重置流 ID，后续旧流事件将被忽略
+    setMessages(msgs)
+    setStatus('idle')
+    setError(null)
+    setToolCalls([])
+  }, [])
 
   const sendMessage = useCallback((conversationId: string, text: string) => {
-    if (!text.trim() || status === 'streaming') return
+    if (!text.trim() || statusRef.current === 'streaming') return
+
+    // 不取消旧的 fetch，让其继续在后台完成
+    // 旧流的事件会被 streamIdRef 隔离忽略，不扰乱当前会话
+
+    // 生成新的流 ID，旧流的事件会被忽略
+    const sid = nextStreamId()
+    streamIdRef.current = sid
 
     setError(null)
     setStatus('streaming')
     setToolCalls([])
     currentAssistantRef.current = null
 
-    // 添加用户消息
+    // Add user message
     const userMsg: Message = {
       id: nextId(),
       role: 'user',
@@ -43,7 +69,7 @@ export function useChatStream(): UseChatStreamReturn {
     }
     setMessages((prev) => [...prev, userMsg])
 
-    // 添加空的 assistant 消息占位
+    // Add empty assistant message placeholder
     const assistantMsg: Message = {
       id: nextId(),
       role: 'assistant',
@@ -56,7 +82,10 @@ export function useChatStream(): UseChatStreamReturn {
     abortRef.current = chatStream(
       conversationId,
       text,
-      (evt) => {
+      (evt: StreamEvent) => {
+        // 忽略非当前流的事件（用户可能已切换到新会话）
+        if (streamIdRef.current !== sid) return
+
         switch (evt.type) {
           case 'token':
             setMessages((prev) => {
@@ -64,7 +93,6 @@ export function useChatStream(): UseChatStreamReturn {
               const lastIdx = prev.length - 1
               const last = prev[lastIdx]
               if (last.role !== 'assistant') return prev
-              // 不原地修改，创建新对象避免 StrictMode 双调用重复追加
               return prev.map((msg, i) =>
                 i === lastIdx
                   ? { ...msg, content: msg.content + (evt.content ?? '') }
@@ -73,7 +101,14 @@ export function useChatStream(): UseChatStreamReturn {
             })
             break
 
+          case 'conversation_id':
+            if (evt.content && onNewConversationRef.current) {
+              onNewConversationRef.current(evt.content)
+            }
+            break
+
           case 'tool_call':
+            if (streamIdRef.current !== sid) return
             setStatus('tool_calling')
             setToolCalls((prev) => [
               ...prev,
@@ -82,6 +117,7 @@ export function useChatStream(): UseChatStreamReturn {
             break
 
           case 'tool_result':
+            if (streamIdRef.current !== sid) return
             setToolCalls((prev) => {
               const clone = [...prev]
               const last = clone[clone.length - 1]
@@ -95,24 +131,27 @@ export function useChatStream(): UseChatStreamReturn {
             break
 
           case 'done':
+            if (streamIdRef.current !== sid) return
             setStatus('idle')
             break
 
           case 'error':
+            if (streamIdRef.current !== sid) return
             setError(evt.content ?? '未知错误')
             setStatus('error')
             break
         }
       },
-      (err) => {
+      (err: Error) => {
+        if (streamIdRef.current !== sid) return
         setError(err.message)
         setStatus('error')
       },
       () => {
-        // onFinally: 不在状态机忙时重设状态
+        // onFinally
       },
     )
-  }, [status])
+  }, [])
 
   const cancel = useCallback(() => {
     abortRef.current?.abort()
@@ -121,11 +160,23 @@ export function useChatStream(): UseChatStreamReturn {
   }, [])
 
   const clear = useCallback(() => {
+    streamIdRef.current = 0
     setMessages([])
     setError(null)
     setStatus('idle')
     setToolCalls([])
   }, [])
 
-  return { messages, status, error, toolCalls, sendMessage, cancel, clear }
+  return {
+    messages,
+    status,
+    error,
+    toolCalls,
+    sendMessage,
+    cancel,
+    clear,
+    setInitialMessages,
+  }
 }
+
+export type { UseChatStreamReturn }

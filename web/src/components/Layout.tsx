@@ -1,7 +1,7 @@
 import { Outlet, useSearchParams } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import { Menu } from 'lucide-react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useConversations } from '../hooks/useConversations'
 
 export default function Layout() {
@@ -9,6 +9,22 @@ export default function Layout() {
   const [searchParams, setSearchParams] = useSearchParams()
   const convId = searchParams.get('id')
   const convs = useConversations()
+
+  // 页面加载时同步 URL 中的会话 ID 到状态
+  useEffect(() => {
+    if (convId && convId !== convs.currentId) {
+      convs.setCurrentId(convId)
+    }
+  }, [convId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 刷新页面时，自动选中最近一个会话
+  useEffect(() => {
+    if (!convs.loading && convs.conversations.length > 0 && !convId) {
+      const newest = convs.conversations[0].conversation_id
+      setSearchParams({ id: newest })
+      convs.setCurrentId(newest)
+    }
+  }, [convs.conversations, convs.loading, convId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelect = useCallback(
     (id: string) => {
@@ -46,13 +62,14 @@ export default function Layout() {
           currentId={convId}
           onSelect={handleSelect}
           onNew={handleNew}
+          onDelete={convs.delete}
           loading={convs.loading}
           onClose={() => setSidebarOpen(false)}
         />
       </aside>
 
       {/* 主区域 */}
-      <main className="flex flex-1 flex-col min-w-0">
+      <main className="flex flex-1 flex-col min-h-0 min-w-0">
         {/* 顶栏（移动端） */}
         <header className="flex items-center justify-between border-b border-gray-200 px-4 py-2 dark:border-gray-700 md:hidden">
           <button

@@ -221,8 +221,11 @@ func ProvideRetriever(client *elasticsearch.Client, emb embedding.Embedder, cfg 
 	return esretriever.NewESRetriever(client, emb, cfg.VectorStore.Elasticsearch.IndexName, 10)
 }
 
-func ProvideMemory() *store.ConversationMemory {
-	return store.NewConversationMemory(100)
+func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESConversationStore, error) {
+	return store.NewESConversationStore(client,
+		cfg.VectorStore.Elasticsearch.ConvIndexName,
+		cfg.VectorStore.Elasticsearch.ConvMsgIndexName,
+		logger)
 }
 
 func ProvideDocumentStore() *store.DocumentStore {
@@ -282,21 +285,22 @@ func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Co
 func ProvideChatService(
 	rag compose.Runnable[string, *eino_schema.Message],
 	agent compose.Runnable[*eino_schema.Message, *eino_schema.Message],
+	convSvc *service.ConversationService,
 	logger *zap.Logger,
 ) *service.ChatService {
-	return service.NewChatService(rag, agent, logger)
+	return service.NewChatService(rag, agent, convSvc, logger)
 }
 
 func ProvideDocService(doc compose.Runnable[[]byte, []string], logger *zap.Logger) *service.DocumentService {
 	return service.NewDocumentService(doc, logger)
 }
 
-func ProvideConvService(mem *store.ConversationMemory, logger *zap.Logger) *service.ConversationService {
-	return service.NewConversationService(mem, logger)
+func ProvideConvService(esStore *store.ESConversationStore, logger *zap.Logger) *service.ConversationService {
+	return service.NewConversationService(esStore, logger)
 }
 
-func ProvideChatHandler(svc *service.ChatService, mem *store.ConversationMemory, logger *zap.Logger) *handler.ChatHandler {
-	return handler.NewChatHandler(svc, mem, logger)
+func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *handler.ChatHandler {
+	return handler.NewChatHandler(svc, convSvc, logger)
 }
 
 func ProvideConvHandler(svc *service.ConversationService) *handler.ConversationHandler {
@@ -320,7 +324,7 @@ func ProvideRouter(
 // ── Module ──
 
 var Module = fx.Module("goagent",
-	fx.Provide(
+		fx.Provide(
 		ProvideConfig,
 		ProvideLogger,
 		resolveModelProvider,
@@ -329,7 +333,7 @@ var Module = fx.Module("goagent",
 		ProvideESClient,
 		ProvideIndexer,
 		ProvideRetriever,
-		ProvideMemory,
+		ProvideESConversationStore,
 		ProvideDocumentStore,
 		ProvideRAGChain,
 		ProvideAgentGraph,
