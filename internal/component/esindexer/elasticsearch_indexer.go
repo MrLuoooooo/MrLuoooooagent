@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -32,8 +33,7 @@ func NewElasticsearchIndexer(
 ) indexer.Indexer {
 	// Auto-create index if missing.
 	if err := ensureIndex(client, indexName, embeddingDim); err != nil {
-		// Non-fatal: log only, actual writes will fail clearly.
-		fmt.Printf("[esindexer] ensure index warning: %v\n", err)
+		log.Printf("[esindexer] ensure index warning: %v", err)
 	}
 
 	return &ElasticsearchIndexer{
@@ -49,14 +49,37 @@ func (e *ElasticsearchIndexer) Store(ctx context.Context, docs []*schema.Documen
 		return nil, nil
 	}
 
-	texts := make([]string, len(docs))
-	for i, doc := range docs {
-		texts[i] = doc.Content
+	// Use pre-computed vectors from document metadata if available,
+	// avoiding redundant embedding computation (the pipeline may have already embedded).
+	var embeddings [][]float64
+	needEmbed := false
+	allHaveVectors := true
+	for _, doc := range docs {
+		_, ok := doc.MetaData["vector"]
+		if !ok {
+			allHaveVectors = false
+			break
+		}
+	}
+	if allHaveVectors {
+		embeddings = make([][]float64, len(docs))
+		for i, doc := range docs {
+			embeddings[i] = doc.MetaData["vector"].([]float64)
+		}
+	} else {
+		needEmbed = true
 	}
 
-	embeddings, err := e.embedder.EmbedStrings(ctx, texts)
-	if err != nil {
-		return nil, fmt.Errorf("generate embeddings: %w", err)
+	if needEmbed {
+		texts := make([]string, len(docs))
+		for i, doc := range docs {
+			texts[i] = doc.Content
+		}
+		var err error
+		embeddings, err = e.embedder.EmbedStrings(ctx, texts)
+		if err != nil {
+			return nil, fmt.Errorf("generate embeddings: %w", err)
+		}
 	}
 
 	var ids []string
@@ -114,30 +137,20 @@ func ensureIndex(client *elasticsearch.Client, indexName string, dim int) error 
 	}
 	if res.StatusCode == 200 {
 		res.Body.Close()
-		return nil // already exists
+		return nil
 	}
 	res.Body.Close()
 
-	// Create index with vector mapping.
 	mapping := map[string]any{
 		"mappings": map[string]any{
 			"properties": map[string]any{
-				"content": map[string]any{
-					"type": "text",
-				},
+				"content": map[string]any{"type": "text"},
 				"embedding": map[string]any{
-					"type":       "dense_vector",
-					"dims":       dim,
-					"index":      true,
-					"similarity": "cosine",
+					"type": "dense_vector", "dims": dim,
+					"index": true, "similarity": "cosine",
 				},
-				"meta_data": map[string]any{
-					"type":    "object",
-					"dynamic": true,
-				},
-				"created_at": map[string]any{
-					"type": "date",
-				},
+				"meta_data": map[string]any{"type": "object", "dynamic": true},
+				"created_at": map[string]any{"type": "date"},
 			},
 		},
 	}
@@ -157,6 +170,26 @@ func ensureIndex(client *elasticsearch.Client, indexName string, dim int) error 
 		return fmt.Errorf("create index failed: %s", string(body))
 	}
 
+	return nil
+}
+
+// DeleteByDocumentID removes all vector chunks belonging to a parent document.
+func (e *ElasticsearchIndexer) DeleteByDocumentID(ctx context.Context, docID string) error {
+	query := fmt.Sprintf(`{"query":{"term":{"meta_data.document_id":"%s"}}}`, docID)
+	res, err := e.client.DeleteByQuery(
+		[]string{e.indexName},
+		strings.NewReader(query),
+		e.client.DeleteByQuery.WithContext(ctx),
+		e.client.DeleteByQuery.WithRefresh(true),
+	)
+	if err != nil {
+		return fmt.Errorf("delete by query: %w", err)
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		body, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("delete by query failed: %s", string(body))
+	}
 	return nil
 }
 

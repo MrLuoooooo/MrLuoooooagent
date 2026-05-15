@@ -29,8 +29,22 @@ type ListConversationsResponse struct {
 
 // MessageItem is a single message in conversation history.
 type MessageItem struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// ToolCall represents a tool call within a message.
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"`
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall represents a function invocation within a tool call.
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // GetMessagesResponse holds the messages for a conversation.

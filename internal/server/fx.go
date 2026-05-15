@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/indexer"
@@ -16,6 +17,7 @@ import (
 	eino_schema "github.com/cloudwego/eino/schema"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/gin-gonic/gin"
+	"github.com/yourusername/goagentpro/internal/callback"
 	"github.com/yourusername/goagentpro/internal/component/esindexer"
 	"github.com/yourusername/goagentpro/internal/component/esretriever"
 	"github.com/yourusername/goagentpro/internal/component/openaiembed"
@@ -44,6 +46,16 @@ type ResolvedConfig struct {
 	Provider           string
 }
 
+// ResolvedEmbeddingConfig is resolved independently — embedding may live on a
+// different provider than chat (e.g. Ollama nomic-embed-text + DeepSeek chat).
+type ResolvedEmbeddingConfig struct {
+	Model     string
+	BaseURL   string
+	APIKey    string
+	Dimension int
+	Provider  string
+}
+
 type ollamaModel struct {
 	Name string `json:"name"`
 }
@@ -58,13 +70,18 @@ func resolveModelProvider(cfg *config.Config, logger *zap.Logger) *ResolvedConfi
 	case "local":
 		return useLocal(cfg, logger)
 	}
-	logger.Info("model: probing Ollama")
+	// auto 模式：云端 API 优先（支持原生 function calling），不可用时回退 Ollama
+	if cfg.ModelProvider.Cloud.Enabled && cfg.ModelProvider.Cloud.APIKey != "" {
+		logger.Info("model: 使用云端 API（支持原生 function calling）", zap.String("chat", cfg.ModelProvider.Cloud.ChatModel))
+		return useCloud(cfg, logger)
+	}
+	logger.Info("model: 未配置云端 API Key，检测本地 Ollama")
 	if r := probeOllama(cfg, logger); r != nil {
-		logger.Info("model: using Ollama", zap.String("chat", r.ChatModel))
+		logger.Info("model: 使用本地 Ollama（prompt 回退工具调用）", zap.String("chat", r.ChatModel))
 		return r
 	}
 	if cfg.ModelProvider.Cloud.Enabled || cfg.ModelProvider.Cloud.APIKey != "" {
-		logger.Info("model: Ollama unavailable, falling back to cloud")
+		logger.Info("model: Ollama 不可用，尝试云端")
 		return useCloud(cfg, logger)
 	}
 	logger.Error("没有配置llm: 未检测到本地 Ollama，也未配置云端 API Key。" +
@@ -127,6 +144,71 @@ func probeOllama(cfg *config.Config, logger *zap.Logger) *ResolvedConfig {
 	}
 }
 
+// resolveEmbeddingProvider always prefers Ollama for embeddings because
+// many chat APIs (e.g. DeepSeek) don't expose an /embeddings endpoint.
+func resolveEmbeddingProvider(cfg *config.Config, logger *zap.Logger) *ResolvedEmbeddingConfig {
+	if cfg.ModelProvider.Local.Enabled {
+		if ec := probeOllamaEmbedding(cfg); ec != nil {
+			logger.Info("embed: 使用本地 Ollama", zap.String("model", ec.Model))
+			return ec
+		}
+		logger.Warn("embed: Ollama 嵌入模型不可用，回退云端")
+	}
+	if cfg.ModelProvider.Cloud.Enabled && cfg.ModelProvider.Cloud.APIKey != "" {
+		dim := cfg.ModelProvider.EmbeddingDimension
+		if dim <= 0 {
+			dim = 1536
+		}
+		em := cfg.ModelProvider.Cloud.EmbeddingModel
+		if em == "" {
+			em = "text-embedding-3-small"
+		}
+		logger.Info("embed: 使用云端 API", zap.String("model", em))
+		return &ResolvedEmbeddingConfig{
+			Model: em, BaseURL: cfg.ModelProvider.Cloud.BaseURL,
+			APIKey: cfg.ModelProvider.Cloud.APIKey, Dimension: dim,
+			Provider: "cloud/" + cfg.ModelProvider.Cloud.Type,
+		}
+	}
+	return nil
+}
+
+func probeOllamaEmbedding(cfg *config.Config) *ResolvedEmbeddingConfig {
+	cl := &http.Client{Timeout: 3 * time.Second}
+	resp, err := cl.Get(cfg.ModelProvider.Local.BaseURL + "/api/tags")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil
+	}
+	var tags ollamaTags
+	json.NewDecoder(resp.Body).Decode(&tags)
+	norm := func(s string) string {
+		if len(s) > 7 && s[len(s)-7:] == ":latest" {
+			return s[:len(s)-7]
+		}
+		return s
+	}
+	for _, m := range tags.Models {
+		if norm(m.Name) == cfg.ModelProvider.Local.EmbeddingModel {
+			dim := cfg.ModelProvider.EmbeddingDimension
+			if dim <= 0 {
+				dim = 768
+			}
+			return &ResolvedEmbeddingConfig{
+				Model:     cfg.ModelProvider.Local.EmbeddingModel,
+				BaseURL:   cfg.ModelProvider.Local.BaseURL + "/v1",
+				APIKey:    "ollama",
+				Dimension: dim,
+				Provider:  "ollama",
+			}
+		}
+	}
+	return nil
+}
+
 func useCloud(cfg *config.Config, logger *zap.Logger) *ResolvedConfig {
 	c := cfg.ModelProvider.Cloud
 	if c.APIKey == "" {
@@ -187,18 +269,18 @@ func ProvideLogger(cfg *config.Config) (*zap.Logger, error) {
 	}), nil
 }
 
-func ProvideEmbedder(resolved *ResolvedConfig) embedding.Embedder {
-	if resolved == nil {
+func ProvideEmbedder(ec *ResolvedEmbeddingConfig) embedding.Embedder {
+	if ec == nil {
 		return &stubEmbedder{}
 	}
-	return openaiembed.NewOpenAIEmbedder(resolved.APIKey, resolved.EmbeddingModel, resolved.BaseURL)
+	return openaiembed.NewOpenAIEmbedder(ec.APIKey, ec.Model, ec.BaseURL)
 }
 
-func ProvideChatModel(resolved *ResolvedConfig) model.ChatModel {
+func ProvideChatModel(resolved *ResolvedConfig, logger *zap.Logger) model.ChatModel {
 	if resolved == nil {
 		return &stubChatModel{}
 	}
-	return openaimodel.NewOpenAIChatModel(resolved.APIKey, resolved.ChatModel, resolved.BaseURL)
+	return openaimodel.NewOpenAIChatModel(resolved.APIKey, resolved.ChatModel, resolved.BaseURL, logger)
 }
 
 func ProvideESClient(cfg *config.Config) (*elasticsearch.Client, error) {
@@ -209,10 +291,10 @@ func ProvideESClient(cfg *config.Config) (*elasticsearch.Client, error) {
 	})
 }
 
-func ProvideIndexer(client *elasticsearch.Client, emb embedding.Embedder, resolved *ResolvedConfig, cfg *config.Config) indexer.Indexer {
+func ProvideIndexer(client *elasticsearch.Client, emb embedding.Embedder, ec *ResolvedEmbeddingConfig, cfg *config.Config) indexer.Indexer {
 	dim := 768
-	if resolved != nil && resolved.EmbeddingDimension > 0 {
-		dim = resolved.EmbeddingDimension
+	if ec != nil && ec.Dimension > 0 {
+		dim = ec.Dimension
 	}
 	return esindexer.NewElasticsearchIndexer(client, emb, cfg.VectorStore.Elasticsearch.IndexName, dim)
 }
@@ -228,8 +310,45 @@ func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config
 		logger)
 }
 
-func ProvideDocumentStore() *store.DocumentStore {
-	return store.NewDocumentStore()
+func ProvideDocumentStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESDocumentStore, error) {
+	return store.NewESDocumentStore(client,
+		cfg.VectorStore.Elasticsearch.DocIndexName,
+		logger)
+}
+
+// docStoreAdapter adapts ESDocumentStore to service.DocStore interface.
+type docStoreAdapter struct {
+	es *store.ESDocumentStore
+}
+
+func (a *docStoreAdapter) Save(ctx context.Context, doc service.DocMeta) error {
+	return a.es.Save(ctx, store.DocumentMeta{
+		ID: doc.ID, Filename: doc.Filename, ChunkCount: doc.ChunkCount,
+		CreatedAt: doc.CreatedAt, Content: doc.Content,
+	})
+}
+
+func (a *docStoreAdapter) Delete(ctx context.Context, id string) error {
+	return a.es.Delete(ctx, id)
+}
+
+func (a *docStoreAdapter) List(ctx context.Context) ([]service.DocMeta, error) {
+	docs, err := a.es.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]service.DocMeta, len(docs))
+	for i, d := range docs {
+		result[i] = service.DocMeta{
+			ID: d.ID, Filename: d.Filename, ChunkCount: d.ChunkCount,
+			CreatedAt: d.CreatedAt, Content: d.Content,
+		}
+	}
+	return result, nil
+}
+
+func ProvideDocStoreAdapter(es *store.ESDocumentStore) service.DocStore {
+	return &docStoreAdapter{es: es}
 }
 
 // ProvideRAGChain creates the RAG pipeline.
@@ -238,14 +357,42 @@ func ProvideRAGChain(cm model.ChatModel, rd retriever.Retriever) (compose.Runnab
 	return pipeline.NewRAGChain(rd, tmpl, cm)
 }
 
-// ProvideAgentGraph creates the tool-calling Agent graph with all registered tools.
-func ProvideAgentGraph(
-	cm model.ChatModel,
+// ToolRegistry is a sentinel type that forces tool registration to complete
+// before any consumer (e.g. ProvideAgentGraph) reads the global tool registry.
+type ToolRegistry struct{}
+
+// ProvideToolRegistry registers all tools into the global tool registry.
+// It depends on ragChain so the RAG tool can wrap the pipeline.
+func ProvideToolRegistry(
+	cfg *config.Config,
 	ragChain compose.Runnable[string, *eino_schema.Message],
-) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
-	// Register core tools.
+) *ToolRegistry {
+	// === 文件系统工具（8 个）===
+	tool.Register(&tool.ReadFileTool{})
+	tool.Register(&tool.WriteFileTool{})
+	tool.Register(&tool.EditFileTool{})
+	tool.Register(&tool.DeleteFileTool{})
+	tool.Register(&tool.ListDirectoryTool{})
+	tool.Register(&tool.CreateDirectoryTool{})
+	tool.Register(&tool.SearchFilesTool{})
+	tool.Register(&tool.GetFileInfoTool{})
+
+	// === Bash 工具 ===
+	tool.Register(tool.NewBashTool(cfg.Server.AllowedDirs))
+	tool.Register(tool.NewWriteAndExecuteTool(cfg.Server.AllowedDirs))
+
+	// === 现有工具 ===
 	tool.Register(&tool.DateTimeTool{})
-	tool.Register(&tool.WebSearchTool{})
+
+	// WebSearch: construct with search config.
+	ws := tool.NewWebSearchTool(
+		cfg.Search.BaseURL,
+		cfg.Search.APIKey,
+		cfg.Search.Engine,
+		cfg.Search.Format,
+		cfg.Search.Enabled,
+	)
+	tool.Register(ws)
 
 	// Register RAG as a tool that wraps the RAG pipeline.
 	tool.Register(tool.NewRAGTool(func(ctx context.Context, query string) (string, error) {
@@ -256,6 +403,14 @@ func ProvideAgentGraph(
 		return msg.Content, nil
 	}))
 
+	return &ToolRegistry{}
+}
+
+// ProvideAgentGraph creates the tool-calling Agent graph from already-registered tools.
+func ProvideAgentGraph(
+	cm model.ChatModel,
+	_ *ToolRegistry, // ensures tool registration completed first
+) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
 	allTools := tool.RegisteredTools()
 
 	// Build ToolsNode with all registered tools as eino_tool.BaseTool.
@@ -275,7 +430,7 @@ func ProvideAgentGraph(
 	}
 	graph.MustBindTools(cm, infos)
 
-	return graph.NewAgentGraph(cm, tn)
+	return graph.NewAgentGraph(cm, tn, infos)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
@@ -291,8 +446,23 @@ func ProvideChatService(
 	return service.NewChatService(rag, agent, convSvc, logger)
 }
 
-func ProvideDocService(doc compose.Runnable[[]byte, []string], logger *zap.Logger) *service.DocumentService {
-	return service.NewDocumentService(doc, logger)
+// VectorDeleter is implemented by Indexer implementations that support per-document
+// vector deletion (e.g. Elasticsearch). If the current backend does not support it,
+// DocumentService.Delete falls back to deleting only the metadata record.
+func ProvideVectorDeleter(idx indexer.Indexer) service.VectorDeleter {
+	if vd, ok := idx.(service.VectorDeleter); ok {
+		return vd
+	}
+	return nil
+}
+
+func ProvideDocService(
+	doc compose.Runnable[[]byte, []string],
+	docStore service.DocStore,
+	vecDeleter service.VectorDeleter,
+	logger *zap.Logger,
+) *service.DocumentService {
+	return service.NewDocumentService(doc, docStore, vecDeleter, logger)
 }
 
 func ProvideConvService(esStore *store.ESConversationStore, logger *zap.Logger) *service.ConversationService {
@@ -328,6 +498,7 @@ var Module = fx.Module("goagent",
 		ProvideConfig,
 		ProvideLogger,
 		resolveModelProvider,
+		resolveEmbeddingProvider,
 		ProvideEmbedder,
 		ProvideChatModel,
 		ProvideESClient,
@@ -335,7 +506,10 @@ var Module = fx.Module("goagent",
 		ProvideRetriever,
 		ProvideESConversationStore,
 		ProvideDocumentStore,
+		ProvideDocStoreAdapter,
+		ProvideVectorDeleter,
 		ProvideRAGChain,
+			ProvideToolRegistry,
 		ProvideAgentGraph,
 		ProvideDocChain,
 		ProvideChatService,
@@ -346,4 +520,9 @@ var Module = fx.Module("goagent",
 		ProvideDocHandler,
 		ProvideRouter,
 	),
+	fx.Invoke(func(logger *zap.Logger) {
+		handler := callback.NewLoggingCallback(logger)
+		callbacks.AppendGlobalHandlers(handler)
+		logger.Info("global callback handler registered")
+	}),
 )

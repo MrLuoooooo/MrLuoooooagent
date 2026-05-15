@@ -98,6 +98,7 @@ func TestChatService_Chat_Persists(t *testing.T) {
 		t.Errorf("got %q, want %q", msg.Content, "rag: hello")
 	}
 
+	// Chat() now only saves assistant message (user is saved by handler).
 	if len(conv.saved) != 1 {
 		t.Fatalf("expected 1 save, got %d", len(conv.saved))
 	}
@@ -105,14 +106,11 @@ func TestChatService_Chat_Persists(t *testing.T) {
 	if rec.ConvID != "conv_1" {
 		t.Errorf("convID: got %q, want conv_1", rec.ConvID)
 	}
-	if len(rec.Msgs) != 2 {
-		t.Fatalf("expected 2 messages (user+assistant), got %d", len(rec.Msgs))
+	if len(rec.Msgs) != 1 {
+		t.Fatalf("expected 1 message (assistant only), got %d", len(rec.Msgs))
 	}
-	if rec.Msgs[0].Role != schema.User || rec.Msgs[0].Content != "hello" {
-		t.Errorf("user msg: got %+v", rec.Msgs[0])
-	}
-	if rec.Msgs[1].Role != schema.Assistant || rec.Msgs[1].Content != "rag: hello" {
-		t.Errorf("assistant msg: got %+v", rec.Msgs[1])
+	if rec.Msgs[0].Role != schema.Assistant || rec.Msgs[0].Content != "rag: hello" {
+		t.Errorf("assistant msg: got %+v", rec.Msgs[0])
 	}
 }
 
@@ -128,6 +126,7 @@ func TestChatService_Agent_Persists(t *testing.T) {
 		t.Errorf("got %q, want %q", msg.Content, "agent: time?")
 	}
 
+	// Agent() now only saves assistant message (user is saved by handler).
 	if len(conv.saved) != 1 {
 		t.Fatalf("expected 1 save, got %d", len(conv.saved))
 	}
@@ -135,8 +134,8 @@ func TestChatService_Agent_Persists(t *testing.T) {
 	if rec.ConvID != "conv_2" {
 		t.Errorf("convID: got %q", rec.ConvID)
 	}
-	if len(rec.Msgs) != 2 {
-		t.Fatalf("expected 2 messages, got %d", len(rec.Msgs))
+	if len(rec.Msgs) != 1 {
+		t.Fatalf("expected 1 message (assistant only), got %d", len(rec.Msgs))
 	}
 }
 

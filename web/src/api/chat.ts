@@ -10,6 +10,7 @@ import { parseSSEStream } from '../lib/sse-parser'
 export function chatStream(
   conversationId: string,
   message: string,
+  agent: boolean,
   onEvent: (evt: StreamEvent) => void,
   onError: (err: Error) => void,
   onFinally: () => void,
@@ -26,6 +27,7 @@ export function chatStream(
           conversation_id: conversationId,
           question: message,
           stream: true,
+          agent,
         }),
       })
 

@@ -22,11 +22,12 @@ type ChatResponseData struct {
 }
 
 // StreamEvent is the SSE event envelope for streaming responses.
-// Format matches the frontend contract: {"type":"token|...","content":"...","tool":"..."}
 type StreamEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content,omitempty"`
 	Tool    string `json:"tool,omitempty"`
+	ToolName string `json:"tool_name,omitempty"`
+	ToolArgs string `json:"tool_args,omitempty"`
 }
 
 const (

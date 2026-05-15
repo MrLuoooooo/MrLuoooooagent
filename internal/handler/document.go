@@ -23,7 +23,7 @@ func NewDocumentHandler(svc *service.DocumentService, logger *zap.Logger) *Docum
 
 // UploadDocument handles POST /api/v1/documents.
 func (h *DocumentHandler) UploadDocument(c *gin.Context) {
-	file, _, err := c.Request.FormFile("file")
+	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Err(400, "file is required"))
 		return
@@ -40,7 +40,9 @@ func (h *DocumentHandler) UploadDocument(c *gin.Context) {
 		return
 	}
 
-	ids, err := h.svc.Ingest(c.Request.Context(), data)
+	filename := header.Filename
+
+	ids, err := h.svc.Ingest(c.Request.Context(), data, filename)
 	if err != nil {
 		h.logger.Error("ingest failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
@@ -55,6 +57,11 @@ func (h *DocumentHandler) UploadDocument(c *gin.Context) {
 // DeleteDocument handles DELETE /api/v1/documents/:document_id.
 func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 	docID := c.Param("document_id")
+	if err := h.svc.DeleteDocument(c.Request.Context(), docID); err != nil {
+		h.logger.Error("delete document", zap.String("id", docID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, model.Err(500, "删除文档失败"))
+		return
+	}
 	c.JSON(http.StatusOK, model.OK(model.DeleteDocumentResponse{
 		DocumentID: docID, Status: "deleted",
 	}))
@@ -62,7 +69,23 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 
 // ListDocuments handles GET /api/v1/documents.
 func (h *DocumentHandler) ListDocuments(c *gin.Context) {
+	docs, err := h.svc.ListDocuments(c.Request.Context())
+	if err != nil {
+		h.logger.Error("list documents", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, model.Err(500, "获取文档列表失败"))
+		return
+	}
+
+	items := make([]model.DocumentItem, len(docs))
+	for i, d := range docs {
+		items[i] = model.DocumentItem{
+			DocumentID: d.ID,
+			Content:    d.Content,
+			ChunkCount: d.ChunkCount,
+			CreatedAt:  d.CreatedAt,
+		}
+	}
 	c.JSON(http.StatusOK, model.OK(model.ListDocumentsResponse{
-		Total: 0, Documents: []model.DocumentItem{},
+		Total: len(items), Documents: items,
 	}))
 }

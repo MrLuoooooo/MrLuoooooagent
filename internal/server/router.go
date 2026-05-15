@@ -22,8 +22,14 @@ func NewRouter(
 
 	// Global middleware
 	engine.Use(gin.Recovery())
-	engine.Use(middleware.CORS())
-	engine.Use(middleware.Auth(cfg))
+	engine.Use(middleware.CORS(cfg.Server.CORSOrigins))
+
+	rl := middleware.NewRateLimiter(cfg.Server.RateLimitRPS, cfg.Server.RateLimitRPS*2)
+	if cfg.Server.RateLimitRPS > 0 {
+		engine.Use(rl.Middleware())
+	}
+
+	engine.Use(middleware.Auth(&middleware.Config{APIKey: cfg.Auth.APIKey}))
 	engine.Use(middleware.Logger(logger))
 
 	// Health

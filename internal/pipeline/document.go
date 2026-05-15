@@ -42,7 +42,8 @@ func NewDocumentIngestionChain(
 				return nil, fmt.Errorf("no content after chunking")
 			}
 
-			// 2. Create documents with IDs.
+			// 2. Create documents with IDs. All chunks share a parent document_id.
+			parentID := uuid.New().String()
 			now := time.Now().UTC()
 			docs := make([]*schema.Document, len(chunks))
 			for i, chunk := range chunks {
@@ -50,6 +51,7 @@ func NewDocumentIngestionChain(
 					ID:      uuid.New().String(),
 					Content: chunk,
 					MetaData: map[string]any{
+						"document_id": parentID,
 						"chunk_index": i,
 						"created_at":  now.Format(time.RFC3339),
 					},
@@ -75,13 +77,14 @@ func NewDocumentIngestionChain(
 				docs[i].MetaData["vector"] = vectors[i]
 			}
 
-			// 4. Index — store returns assigned IDs.
-			ids, err := idx.Store(ctx, docs)
+			// 4. Index — store returns assigned chunk IDs.
+			chunkIDs, err := idx.Store(ctx, docs)
 			if err != nil {
 				return nil, fmt.Errorf("document chain: index: %w", err)
 			}
 
-			return ids, nil
+			// Return parent document ID as the first element, followed by chunk IDs.
+			return append([]string{parentID}, chunkIDs...), nil
 		},
 	))
 

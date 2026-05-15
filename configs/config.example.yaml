@@ -1,0 +1,64 @@
+# GoAgent Pro — 配置模板
+# 复制此文件为 config.yaml 并填入你的配置
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug"
+
+# 鉴权（开发期为空=接受任意请求）
+auth:
+  api_key: ""
+
+model_provider:
+  mode: "auto"  # auto | local | cloud
+  embedding_dimension: 768
+  timeout: 120s
+
+  local:
+    enabled: false
+    base_url: "http://localhost:11434"
+    chat_model: ""
+    embedding_model: ""
+
+  cloud:
+    enabled: false
+    type: "openai"
+    api_key: ""  # 通过环境变量 GOAGENT_MODEL_PROVIDER_CLOUD_API_KEY 设置
+    base_url: "https://api.openai.com/v1"
+    chat_model: ""
+    embedding_model: ""
+
+vector_store:
+  type: "elasticsearch"
+  elasticsearch:
+    addresses:
+      - "http://localhost:9200"
+    index_name: "goagent_vectors"
+    conv_index_name: "goagent_conversations"
+    conv_msg_index_name: "goagent_conv_messages"
+    doc_index_name: "goagent_documents"
+    username: ""
+    password: ""
+
+document:
+  chunk_size: 500
+  chunk_overlap: 50
+
+search:
+  enabled: false
+  api_key: ""
+  base_url: "https://serpapi.com/search"
+  engine: "google"
+  format: "serpapi"
+
+conversation:
+  max_history: 20
+  storage_type: "es"
+
+log:
+  level: "info"
+  file_path: "./logs/goagent.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true

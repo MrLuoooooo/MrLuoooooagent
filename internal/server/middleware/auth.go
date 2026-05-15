@@ -1,27 +1,26 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/config"
+	"github.com/yourusername/goagentpro/internal/model"
 )
 
 // UserContextKey is the key used to store authenticated user info in the request context.
 const UserContextKey = "auth_user"
 
-// Auth returns a Gin middleware that enforces token presence from day one.
+// Auth returns a Gin middleware that enforces token authentication.
 //
-//   - If a valid Authorization: Bearer <token> header is present, it sets
-//     the username on the request context.
-//   - If no token is present, the user is marked as "anonymous".
-//   - In neither case does the middleware reject the request — but the
-//     frontend will see "anonymous" in logs/responses, making it obvious
-//     that auth is expected, without breaking development flow.
+// When cfg.Auth.APIKey is set (production mode):
+//   - Valid token → user = "authenticated", continue
+//   - Missing/invalid token → 401 with {"code":401,"message":"unauthorized"}
 //
-// When cfg.Auth.APIKey is set, the middleware validates the token against it.
-// When empty, any non-empty token is accepted (development mode).
-func Auth(cfg *config.Config) gin.HandlerFunc {
+// When cfg.Auth.APIKey is empty (development mode):
+//   - Any request passes through; user is tagged as "anonymous" or "authenticated"
+//     for observability, but no request is blocked.
+func Auth(cfg *Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user := "anonymous"
 		auth := c.GetHeader("Authorization")
@@ -29,20 +28,38 @@ func Auth(cfg *config.Config) gin.HandlerFunc {
 		if auth != "" && strings.HasPrefix(auth, "Bearer ") {
 			token := strings.TrimPrefix(auth, "Bearer ")
 
-			if cfg.Auth.APIKey != "" {
-				// Production mode: reject mismatched keys.
-				if token == cfg.Auth.APIKey {
+			if cfg.APIKey != "" {
+				if token == cfg.APIKey {
 					user = "authenticated"
 				} else {
-					user = "invalid_token"
+					// Production: reject mismatched keys.
+					c.Set(UserContextKey, "invalid_token")
+					c.AbortWithStatusJSON(http.StatusUnauthorized, model.APIEnvelope{
+						Code:    401,
+						Message: "unauthorized",
+					})
+					return
 				}
 			} else if token != "" {
-				// Dev mode with no configured key: accept any token.
+				// Dev mode: accept any non-empty token.
 				user = "authenticated"
 			}
+		} else if cfg.APIKey != "" {
+			// Production: no Authorization header → 401.
+			c.Set(UserContextKey, "anonymous")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, model.APIEnvelope{
+				Code:    401,
+				Message: "unauthorized",
+			})
+			return
 		}
 
 		c.Set(UserContextKey, user)
 		c.Next()
 	}
+}
+
+// Config mirrors the authentication section of the application config.
+type Config struct {
+	APIKey string
 }

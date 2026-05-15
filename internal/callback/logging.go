@@ -53,7 +53,7 @@ type ctxKey string
 
 const ctxKeyStartTime ctxKey = "start_time"
 
-// summarizeOutput produces a short summary of the output for logging.
+// summarizeOutput returns a short text summary of component output for logging.
 func summarizeOutput(output any) string {
 	if output == nil {
 		return ""

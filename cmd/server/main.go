@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/yourusername/goagentpro/internal/config"
@@ -19,21 +21,40 @@ func main() {
 	app.Run()
 }
 
-func startServer(lc fx.Lifecycle, cfg *config.Config, logger *zap.Logger, engine *gin.Engine) {
+func startServer(
+	lc fx.Lifecycle,
+	cfg *config.Config,
+	logger *zap.Logger,
+	engine *gin.Engine,
+) {
 	gin.SetMode(cfg.Server.Mode)
+
+	srv := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		Handler: engine,
+	}
+
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-			logger.Info("Starting server", zap.String("addr", addr))
+			logger.Info("Starting server", zap.String("addr", srv.Addr))
 			go func() {
-				if err := engine.Run(addr); err != nil {
+				if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					logger.Error("Server failed", zap.Error(err))
 				}
 			}()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			logger.Info("Stopping server")
+			logger.Info("Shutting down server gracefully...")
+
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				logger.Error("HTTP server shutdown error", zap.Error(err))
+			}
+
+			logger.Info("Server stopped")
 			return nil
 		},
 	})

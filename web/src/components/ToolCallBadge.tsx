@@ -34,7 +34,7 @@ export default function ToolCallBadge({ toolCall }: ToolCallBadgeProps) {
   return (
     <div className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1 text-xs text-gray-600 dark:text-gray-400">
       {statusIcon()}
-      <span>{toolCall.tool}</span>
+      <span>{toolCall.name}</span>
       <span className="text-gray-400">·</span>
       <span>{statusText()}</span>
     </div>

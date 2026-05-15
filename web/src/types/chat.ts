@@ -11,6 +11,8 @@ export interface StreamEvent {
   type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id'
   content?: string
   tool?: string
+  tool_name?: string
+  tool_args?: string
 }
 
 /** 对话消息 */
@@ -24,7 +26,8 @@ export interface Message {
 
 /** 工具调用记录 */
 export interface ToolCall {
-  tool: string
+  name: string
+  args: string
   status: 'pending' | 'running' | 'done' | 'error'
   input?: string
   output?: string

@@ -53,3 +53,5 @@ func (r *RAGTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts
 	}
 	return answer, nil
 }
+
+var _ tool.InvokableTool = (*RAGTool)(nil)

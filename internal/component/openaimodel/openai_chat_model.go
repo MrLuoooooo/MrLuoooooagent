@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"go.uber.org/zap"
 )
 
 // OpenAIChatModel implements the Eino ChatModel interface (v0.8.13, model.ChatModel).
@@ -21,11 +22,12 @@ type OpenAIChatModel struct {
 	model   string
 	baseURL string
 	client  *http.Client
+	tools   []openAITool
+	logger  *zap.Logger
 }
 
 // NewOpenAIChatModel creates a new OpenAI chat model.
-// Returns model.ChatModel (which embeds model.BaseChatModel + BindTools).
-func NewOpenAIChatModel(apiKey, modelName, baseURL string) model.ChatModel {
+func NewOpenAIChatModel(apiKey, modelName, baseURL string, logger *zap.Logger) model.ChatModel {
 	return &OpenAIChatModel{
 		apiKey:  apiKey,
 		model:   modelName,
@@ -33,17 +35,62 @@ func NewOpenAIChatModel(apiKey, modelName, baseURL string) model.ChatModel {
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 		},
+		logger: logger,
 	}
 }
 
-// Generate implements model.BaseChatModel.
-func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	reqBody := openAIChatRequest{
-		Model:    m.model,
-		Messages: convertMessages(input),
-		Stream:   false,
-	}
+// chatOptions holds request-level options parsed from model.Option.
+type chatOptions struct {
+	temperature *float64
+	maxTokens   *int
+	topP        *float64
+}
 
+// parseOptions extracts common options without mutating shared state.
+func parseOptions(opts []model.Option) chatOptions {
+	o := chatOptions{}
+	common := model.GetCommonOptions(nil, opts...)
+	if common.Temperature != nil {
+		t := float64(*common.Temperature)
+		o.temperature = &t
+	}
+	if common.MaxTokens != nil {
+		o.maxTokens = common.MaxTokens
+	}
+	if common.TopP != nil {
+		p := float64(*common.TopP)
+		o.topP = &p
+	}
+	return o
+}
+
+// buildRequest constructs the OpenAI API request body from the shared model config
+// and request-specific inputs/options.
+func (m *OpenAIChatModel) buildRequest(input []*schema.Message, stream bool, opts chatOptions) openAIChatRequest {
+	req := openAIChatRequest{
+		Model:       m.model,
+		Messages:    convertMessages(input),
+		Stream:      stream,
+		Tools:       m.tools,
+		Temperature: opts.temperature,
+		MaxTokens:   opts.maxTokens,
+		TopP:        opts.topP,
+	}
+	return req
+}
+
+// doChat sends a POST /chat/completions request and returns the raw response body.
+func (m *OpenAIChatModel) doChat(ctx context.Context, reqBody openAIChatRequest) (*http.Response, error) {
+	if m.logger != nil {
+		m.logger.Debug("OpenAI request",
+			zap.String("model", reqBody.Model),
+			zap.String("url", m.baseURL+"/chat/completions"),
+			zap.Int("messages", len(reqBody.Messages)),
+			zap.Int("tools", len(reqBody.Tools)),
+			zap.Bool("stream", reqBody.Stream),
+			zap.Any("tool_names", toolNames(reqBody.Tools)),
+		)
+	}
 	reqData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
@@ -58,7 +105,22 @@ func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+m.apiKey)
 
-	resp, err := m.client.Do(req)
+	return m.client.Do(req)
+}
+
+func toolNames(tools []openAITool) []string {
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Function.Name
+	}
+	return names
+}
+
+// Generate implements model.BaseChatModel.
+func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	reqBody := m.buildRequest(input, false, parseOptions(opts))
+
+	resp, err := m.doChat(ctx, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("execute: %w", err)
 	}
@@ -82,33 +144,14 @@ func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message,
 		return nil, fmt.Errorf("no choices in response")
 	}
 
-	choice := respBody.Choices[0]
-	return convertToMessage(choice.Message), nil
+	return convertToMessage(respBody.Choices[0].Message), nil
 }
 
 // Stream implements model.BaseChatModel.
 func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
-	reqBody := openAIChatRequest{
-		Model:    m.model,
-		Messages: convertMessages(input),
-		Stream:   true,
-	}
+	reqBody := m.buildRequest(input, true, parseOptions(opts))
 
-	reqData, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("marshal: %w", err)
-	}
-
-	url := m.baseURL + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqData))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+m.apiKey)
-
-	resp, err := m.client.Do(req)
+	resp, err := m.doChat(ctx, reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("execute: %w", err)
 	}
@@ -122,9 +165,22 @@ func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, o
 	streamReader, streamWriter := schema.Pipe[*schema.Message](64)
 
 	go func() {
+	// Stop scanning on context cancellation
+		scanDone := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				resp.Body.Close()
+			case <-scanDone:
+			}
+		}()
+		defer close(scanDone)
 		defer resp.Body.Close()
 		defer streamWriter.Close()
 		scanner := bufio.NewScanner(resp.Body)
+		tcAcc := make(map[int]*accumToolCall)
+		sentMsg := false
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			if !strings.HasPrefix(line, "data: ") {
@@ -138,28 +194,102 @@ func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, o
 			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 				continue
 			}
-			if len(chunk.Choices) > 0 {
-				delta := chunk.Choices[0].Delta
-				if delta.Content == "" {
-					continue
-				}
-				msg := &schema.Message{
-					Role:    schema.Assistant,
-					Content: delta.Content,
-				}
-				streamWriter.Send(msg, nil)
+			if len(chunk.Choices) == 0 {
+				continue
 			}
+
+			delta := chunk.Choices[0].Delta
+
+			for _, tc := range delta.ToolCalls {
+				idx := tc.Index
+				if tcAcc[idx] == nil {
+					tcAcc[idx] = &accumToolCall{}
+				}
+				acc := tcAcc[idx]
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Function.Name != "" {
+					acc.fnName = tc.Function.Name
+				}
+				acc.fnArgs += tc.Function.Arguments
+			}
+
+			hasToolCallsDone := chunk.Choices[0].FinishReason != nil &&
+				*chunk.Choices[0].FinishReason == "tool_calls" &&
+				len(tcAcc) > 0
+
+			if delta.Content == "" && !hasToolCallsDone {
+				continue
+			}
+
+			msg := &schema.Message{
+				Role:    schema.Assistant,
+				Content: delta.Content,
+			}
+
+			if hasToolCallsDone {
+				tcs := make([]schema.ToolCall, 0, len(tcAcc))
+				for i := 0; i < len(tcAcc); i++ {
+					acc := tcAcc[i]
+					if acc == nil {
+						continue
+					}
+					tcs = append(tcs, schema.ToolCall{
+						ID:   acc.id,
+						Type: "function",
+						Function: schema.FunctionCall{
+							Name:      acc.fnName,
+							Arguments: acc.fnArgs,
+						},
+					})
+				}
+				if len(tcs) > 0 {
+					msg.ToolCalls = tcs
+				}
+				tcAcc = make(map[int]*accumToolCall)
+			}
+
+			streamWriter.Send(msg, nil)
+			sentMsg = true
+		}
+
+		// Fallback: 当所有 chunk 被过滤，发送空消息防 Eino concat 报错
+		if !sentMsg {
+			streamWriter.Send(&schema.Message{Role: schema.Assistant}, nil)
 		}
 	}()
 
 	return streamReader, nil
 }
 
-// BindTools implements model.ChatModel (the deprecated but required interface).
+// BindTools implements model.ChatModel.
 func (m *OpenAIChatModel) BindTools(tools []*schema.ToolInfo) error {
-	// In the real OpenAI API, tools are attached per-request, not pre-bound.
-	// Store for use in Generate/Stream calls if needed in the future.
+	m.tools = make([]openAITool, len(tools))
+	for i, t := range tools {
+		var params any
+		if t.ParamsOneOf != nil {
+			s, err := t.ParamsOneOf.ToJSONSchema()
+			if err == nil && s != nil {
+				params = s
+			}
+		}
+		m.tools[i] = openAITool{
+			Type: "function",
+			Function: openAIToolFunction{
+				Name:        t.Name,
+				Description: t.Desc,
+				Parameters:  params,
+			},
+		}
+	}
 	return nil
+}
+
+type accumToolCall struct {
+	id     string
+	fnName string
+	fnArgs string
 }
 
 // -- helpers -- //
@@ -171,7 +301,6 @@ func convertMessages(messages []*schema.Message) []openAIMessage {
 			Role:    string(msg.Role),
 			Content: msg.Content,
 		}
-		// Attach tool call info if present.
 		if len(msg.ToolCalls) > 0 {
 			tcs := make([]openAIToolCall, len(msg.ToolCalls))
 			for j, tc := range msg.ToolCalls {
@@ -222,9 +351,13 @@ func convertToMessage(om openAIMessage) *schema.Message {
 // -- OpenAI API types -- //
 
 type openAIChatRequest struct {
-	Model    string          `json:"model"`
-	Messages []openAIMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
+	Model       string          `json:"model"`
+	Messages    []openAIMessage `json:"messages"`
+	Stream      bool            `json:"stream"`
+	Tools       []openAITool    `json:"tools,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	MaxTokens   *int            `json:"max_tokens,omitempty"`
+	TopP        *float64        `json:"top_p,omitempty"`
 }
 
 type openAIMessage struct {
@@ -234,9 +367,20 @@ type openAIMessage struct {
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
+type openAITool struct {
+	Type     string            `json:"type"`
+	Function openAIToolFunction `json:"function"`
+}
+
+type openAIToolFunction struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Parameters  any    `json:"parameters,omitempty"`
+}
+
 type openAIToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
+	ID       string            `json:"id"`
+	Type     string            `json:"type"`
 	Function openAIFunctionCall `json:"function"`
 }
 
@@ -246,22 +390,31 @@ type openAIFunctionCall struct {
 }
 
 type openAIChatResponse struct {
-	Object  string        `json:"object"`
-	Model   string        `json:"model"`
+	Object  string         `json:"object"`
+	Model   string         `json:"model"`
 	Choices []openAIChoice `json:"choices"`
-	Usage   openAIUsage   `json:"usage"`
+	Usage   openAIUsage    `json:"usage"`
 }
 
 type openAIChoice struct {
-	Index        int          `json:"index"`
+	Index        int           `json:"index"`
 	Message      openAIMessage `json:"message"`
-	FinishReason string       `json:"finish_reason"`
+	FinishReason string        `json:"finish_reason"`
 }
 
 type openAIStreamChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
@@ -272,3 +425,5 @@ type openAIUsage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
 }
+
+var _ model.ChatModel = (*OpenAIChatModel)(nil)

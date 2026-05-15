@@ -44,6 +44,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "0.0.0.0")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "debug")
+	v.SetDefault("server.bash_timeout", 30)
+	v.SetDefault("server.cors_origins", []string{"*"})
+	v.SetDefault("server.rate_limit_rps", 10.0)
+	v.SetDefault("server.allowed_dirs", []string{`D:\goagentpro`, `C:\Users\35617\Desktop`})
 
 	// Auth defaults (empty = dev mode, any token accepted).
 	v.SetDefault("auth.api_key", "")
@@ -72,6 +76,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("vector_store.elasticsearch.index_name", "goagent_vectors")
 	v.SetDefault("vector_store.elasticsearch.conv_index_name", "goagent_conversations")
 	v.SetDefault("vector_store.elasticsearch.conv_msg_index_name", "goagent_conv_messages")
+	v.SetDefault("vector_store.elasticsearch.doc_index_name", "goagent_documents")
 
 	v.SetDefault("document.max_file_size", 10485760)
 	v.SetDefault("document.allowed_types", []string{".pdf", ".txt", ".md"})
@@ -79,7 +84,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("document.chunk_overlap", 50)
 
 	v.SetDefault("conversation.max_history", 20)
-	v.SetDefault("conversation.storage_type", "memory")
+	v.SetDefault("conversation.storage_type", "elasticsearch") // 实际存储后端为 ES
+
+	v.SetDefault("search.enabled", false)
+	v.SetDefault("search.api_key", "")
+	v.SetDefault("search.base_url", "https://serpapi.com/search")
+	v.SetDefault("search.engine", "google")
+	v.SetDefault("search.format", "serpapi")
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.file_path", "./logs/goagent.log")

@@ -1,4 +1,4 @@
-# GoAgent Pro — Docker 部署配置（Ollama 宿主机模式）
+# GoAgent Pro — Docker 配置
 server:
   host: "0.0.0.0"
   port: 8080
@@ -19,11 +19,11 @@ model_provider:
     embedding_model: "nomic-embed-text"
 
   cloud:
-    enabled: false
+    enabled: true
     type: "openai"
-    api_key: ""
-    base_url: "https://api.openai.com/v1"
-    chat_model: ""
+    api_key: "sk-9085ad86a2a046a7b43a18117115e572"
+    base_url: "https://api.deepseek.com/v1"
+    chat_model: "deepseek-chat"
     embedding_model: ""
 
 vector_store:
@@ -34,6 +34,7 @@ vector_store:
     index_name: "goagent_vectors"
     conv_index_name: "goagent_conversations"
     conv_msg_index_name: "goagent_conv_messages"
+    doc_index_name: "goagent_documents"
     username: ""
     password: ""
 
@@ -45,6 +46,12 @@ document:
     - ".md"
   chunk_size: 500
   chunk_overlap: 50
+
+search:
+  enabled: false
+  api_key: ""
+  base_url: "https://serpapi.com/search"
+  engine: "google"
 
 conversation:
   max_history: 20

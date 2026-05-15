@@ -52,17 +52,17 @@ export default function ChatPage() {
   }, [convId])
 
   const handleSend = useCallback(
-    (text: string) => {
+    (text: string, agent?: boolean) => {
       userSentRef.current = true
       if (!convId) {
         create('新会话').then((id) => {
-          if (id) chat.sendMessage(id, text)
+          if (id) chat.sendMessage(id, text, agent)
         })
         return
       }
-      chat.sendMessage(convId, text)
+      chat.sendMessage(convId, text, agent)
     },
-    [convId, create, chat],
+    [convId, create, chat.sendMessage],
   )
 
   return (

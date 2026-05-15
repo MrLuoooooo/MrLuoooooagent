@@ -15,6 +15,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   app:
     build:
@@ -25,6 +29,7 @@ services:
       - "8080:8080"
     environment:
       - CONFIG_PATH=/app/configs
+      - GOAGENT_PROJECT_ROOT=/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -32,6 +37,16 @@ services:
         condition: service_healthy
     volumes:
       - app_logs:/var/log/goagent
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8080/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   web:
     image: nginx:latest
@@ -42,8 +57,13 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web/dist:/usr/share/nginx/html:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
 volumes:
   es_data:

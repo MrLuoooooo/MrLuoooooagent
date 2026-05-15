@@ -10,6 +10,7 @@ type Config struct {
 	VectorStore   VectorStoreConfig   `mapstructure:"vector_store"`
 	Document      DocumentConfig      `mapstructure:"document"`
 	Conversation  ConversationConfig  `mapstructure:"conversation"`
+	Search        SearchConfig        `mapstructure:"search"`
 	Log           LogConfig           `mapstructure:"log"`
 }
 
@@ -20,9 +21,13 @@ type AuthConfig struct {
 
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
+	Host         string   `mapstructure:"host"`
+	Port         int      `mapstructure:"port"`
+	Mode         string   `mapstructure:"mode"`
+	AllowedDirs  []string `mapstructure:"allowed_dirs"`
+	BashTimeout  int      `mapstructure:"bash_timeout"`
+	CORSOrigins  []string `mapstructure:"cors_origins"`
+	RateLimitRPS float64  `mapstructure:"rate_limit_rps"`
 }
 
 // ModelProviderConfig configures local and remote LLM providers.
@@ -69,6 +74,7 @@ type ElasticsearchConfig struct {
 	Password         string   `mapstructure:"password"`
 	ConvIndexName    string   `mapstructure:"conv_index_name"`
 	ConvMsgIndexName string   `mapstructure:"conv_msg_index_name"`
+	DocIndexName     string   `mapstructure:"doc_index_name"`
 }
 
 // DocumentConfig holds document processing configuration.
@@ -77,6 +83,15 @@ type DocumentConfig struct {
 	AllowedTypes []string `mapstructure:"allowed_types"`
 	ChunkSize    int      `mapstructure:"chunk_size"`
 	ChunkOverlap int      `mapstructure:"chunk_overlap"`
+}
+
+// SearchConfig holds web search configuration.
+type SearchConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	APIKey  string `mapstructure:"api_key"`
+	BaseURL string `mapstructure:"base_url"`
+	Engine  string `mapstructure:"engine"`
+	Format  string `mapstructure:"format"` // serpapi, brave, bing
 }
 
 // ConversationConfig holds conversation configuration.

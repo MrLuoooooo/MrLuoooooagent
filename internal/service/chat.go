@@ -35,7 +35,8 @@ func NewChatService(
 	return &ChatService{ragChain: ragChain, agentGraph: agentGraph, persister: persister, logger: logger}
 }
 
-// Chat invokes the RAG chain, persists both messages, and returns the assistant message.
+// Chat invokes the RAG chain, persists the assistant message, and returns it.
+// User message must be saved by the handler before calling this (to keep original question).
 func (s *ChatService) Chat(ctx context.Context, question string, convID string) (*schema.Message, error) {
 	msg, err := s.ragChain.Invoke(ctx, question)
 	if err != nil {
@@ -43,9 +44,9 @@ func (s *ChatService) Chat(ctx context.Context, question string, convID string) 
 		return nil, err
 	}
 
-	// Persist: save user + assistant message pair
-	if err := s.saveMessagePair(convID, question, msg.Content, nil); err != nil {
-		s.logger.Error("persist messages", zap.String("conv_id", convID), zap.Error(err))
+	// Persist assistant message only (user message was saved by handler).
+	if err := s.SaveAssistantMessage(convID, msg.Content, nil); err != nil {
+		s.logger.Error("persist assistant message", zap.String("conv_id", convID), zap.Error(err))
 	}
 
 	return msg, nil
@@ -93,15 +94,16 @@ func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer
 	})
 }
 
-// Agent invokes the tool-calling agent graph and persists messages.
+// Agent invokes the tool-calling agent graph and persists the assistant message.
+// User message must be saved by the handler before calling this.
 func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string) (*schema.Message, error) {
 	result, err := s.agentGraph.Invoke(ctx, msg)
 	if err != nil {
 		s.logger.Error("agent graph invoke failed", zap.Error(err))
 		return nil, err
 	}
-	if err := s.saveMessagePair(convID, msg.Content, result.Content, result.ToolCalls); err != nil {
-		s.logger.Error("persist agent messages", zap.String("conv_id", convID), zap.Error(err))
+	if err := s.SaveAssistantMessage(convID, result.Content, result.ToolCalls); err != nil {
+		s.logger.Error("persist agent assistant message", zap.String("conv_id", convID), zap.Error(err))
 	}
 	return result, nil
 }
@@ -116,15 +118,3 @@ func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message) (*sc
 	return stream, nil
 }
 
-// saveMessagePair persists one user message and one assistant message together.
-func (s *ChatService) saveMessagePair(convID, question, answer string, toolCalls []schema.ToolCall) error {
-	msgs := []*schema.Message{
-		{Role: schema.User, Content: question},
-		{Role: schema.Assistant, Content: answer},
-	}
-	if len(toolCalls) > 0 {
-		msgs[1].ToolCalls = toolCalls
-	}
-	// Use background context for ES writes to prevent cancellation races
-	return s.persister.SaveMessages(context.Background(), convID, msgs)
-}

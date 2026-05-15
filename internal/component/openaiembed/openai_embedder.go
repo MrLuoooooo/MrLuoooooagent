@@ -124,9 +124,4 @@ type openAIUsage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+var _ embedding.Embedder = (*OpenAIEmbedder)(nil)

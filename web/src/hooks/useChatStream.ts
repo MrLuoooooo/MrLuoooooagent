@@ -7,7 +7,7 @@ interface UseChatStreamReturn {
   status: ChatStatus
   error: string | null
   toolCalls: ToolCall[]
-  sendMessage: (conversationId: string, text: string) => void
+  sendMessage: (conversationId: string, text: string, agent?: boolean) => void
   cancel: () => void
   clear: () => void
   setInitialMessages: (msgs: Message[]) => void
@@ -45,13 +45,9 @@ export function useChatStream(): UseChatStreamReturn {
     setToolCalls([])
   }, [])
 
-  const sendMessage = useCallback((conversationId: string, text: string) => {
+  const sendMessage = useCallback((conversationId: string, text: string, agent?: boolean) => {
     if (!text.trim() || statusRef.current === 'streaming') return
 
-    // 不取消旧的 fetch，让其继续在后台完成
-    // 旧流的事件会被 streamIdRef 隔离忽略，不扰乱当前会话
-
-    // 生成新的流 ID，旧流的事件会被忽略
     const sid = nextStreamId()
     streamIdRef.current = sid
 
@@ -82,6 +78,7 @@ export function useChatStream(): UseChatStreamReturn {
     abortRef.current = chatStream(
       conversationId,
       text,
+      agent ?? false,
       (evt: StreamEvent) => {
         // 忽略非当前流的事件（用户可能已切换到新会话）
         if (streamIdRef.current !== sid) return
@@ -112,7 +109,7 @@ export function useChatStream(): UseChatStreamReturn {
             setStatus('tool_calling')
             setToolCalls((prev) => [
               ...prev,
-              { tool: evt.tool ?? '', status: 'running' },
+              { name: evt.tool_name ?? evt.tool ?? '', args: evt.tool_args ?? '', status: 'running' },
             ])
             break
 

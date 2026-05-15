@@ -8,14 +8,23 @@ import (
 	"go.uber.org/zap"
 )
 
-// ConversationService wraps the conversation store.
+// ConversationStore is the interface that ESConversationStore implements.
+type ConversationStore interface {
+	Create(ctx context.Context, id string, title string) error
+	List(ctx context.Context) ([]store.ConversationMeta, error)
+	Load(ctx context.Context, conversationID string) ([]*schema.Message, error)
+	Save(ctx context.Context, conversationID string, msgs []*schema.Message) error
+	Delete(ctx context.Context, conversationID string) error
+}
+
+// ConversationService wraps a ConversationStore.
 type ConversationService struct {
-	store  *store.ESConversationStore
+	store  ConversationStore
 	logger *zap.Logger
 }
 
 // NewConversationService creates a ConversationService.
-func NewConversationService(s *store.ESConversationStore, logger *zap.Logger) *ConversationService {
+func NewConversationService(s ConversationStore, logger *zap.Logger) *ConversationService {
 	return &ConversationService{store: s, logger: logger}
 }
 

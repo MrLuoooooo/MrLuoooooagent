@@ -33,12 +33,12 @@ type esConvDoc struct {
 
 // esMsgDoc is the ES document for a single message.
 type esMsgDoc struct {
-	ConversationID string       `json:"conversation_id"`
-	Role           string       `json:"role"`
-	Content        string       `json:"content"`
+	ConversationID string        `json:"conversation_id"`
+	Role           string        `json:"role"`
+	Content        string        `json:"content"`
 	ToolCalls      []toolCallDoc `json:"tool_calls,omitempty"`
-	CreatedAt      time.Time    `json:"created_at"`
-	Order          int64        `json:"order"`
+	CreatedAt      time.Time     `json:"created_at"`
+	Order          int64         `json:"order"`
 }
 
 type toolCallDoc struct {
@@ -52,11 +52,10 @@ type toolCallDoc struct {
 
 // ESConversationStore persists conversation data in Elasticsearch.
 type ESConversationStore struct {
-	client        *elasticsearch.Client
-	convIndex     string
-	msgIndex      string
-	logger        *zap.Logger
-	msgSeqCounter int64
+	client    *elasticsearch.Client
+	convIndex string
+	msgIndex  string
+	logger    *zap.Logger
 }
 
 // NewESConversationStore creates an ES-backed conversation store.
@@ -67,7 +66,6 @@ func NewESConversationStore(client *elasticsearch.Client, convIndex, msgIndex st
 		msgIndex:  msgIndex,
 		logger:    logger,
 	}
-	// Retry connecting to ES since it may still be starting (Docker restart race)
 	var lastErr error
 	for i := 0; i < 15; i++ {
 		if err := s.ensureIndices(context.Background()); err != nil {
@@ -115,14 +113,14 @@ func (s *ESConversationStore) Save(ctx context.Context, conversationID string, m
 	}
 
 	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
 	for _, msg := range msgs {
-		s.msgSeqCounter++
 		doc := esMsgDoc{
 			ConversationID: conversationID,
 			Role:           string(msg.Role),
 			Content:        msg.Content,
 			CreatedAt:      time.Now().UTC(),
-			Order:          s.msgSeqCounter,
+			Order:          time.Now().UnixNano(),
 		}
 		if len(msg.ToolCalls) > 0 {
 			doc.ToolCalls = make([]toolCallDoc, len(msg.ToolCalls))
@@ -135,12 +133,12 @@ func (s *ESConversationStore) Save(ctx context.Context, conversationID string, m
 				doc.ToolCalls[i].Function.Arguments = tc.Function.Arguments
 			}
 		}
-		line, _ := json.Marshal(map[string]interface{}{"index": map[string]string{"_index": s.msgIndex}})
-		buf.Write(line)
-		buf.WriteByte('\n')
-		body, _ := json.Marshal(doc)
-		buf.Write(body)
-		buf.WriteByte('\n')
+		if err := enc.Encode(map[string]interface{}{"index": map[string]string{"_index": s.msgIndex}}); err != nil {
+			return fmt.Errorf("encode bulk meta: %w", err)
+		}
+		if err := enc.Encode(doc); err != nil {
+			return fmt.Errorf("encode message doc: %w", err)
+		}
 	}
 
 	res, err := s.client.Bulk(
@@ -155,7 +153,6 @@ func (s *ESConversationStore) Save(ctx context.Context, conversationID string, m
 		return fmt.Errorf("bulk index error: %s", res.String())
 	}
 
-	// Update conversation message count
 	if err := s.updateConvCount(ctx, conversationID); err != nil {
 		s.logger.Warn("update conversation count", zap.String("id", conversationID), zap.Error(err))
 	}
@@ -163,9 +160,21 @@ func (s *ESConversationStore) Save(ctx context.Context, conversationID string, m
 	return nil
 }
 
+// esTermQuery builds a safe ES term query for the given field/value.
+func esTermQuery(field, value string) string {
+	q := map[string]interface{}{
+		"query": map[string]interface{}{
+			"term": map[string]interface{}{
+				field: value,
+			},
+		},
+	}
+	b, _ := json.Marshal(q)
+	return string(b)
+}
+
 func (s *ESConversationStore) updateConvCount(ctx context.Context, conversationID string) error {
-	// Count messages via search
-	query := fmt.Sprintf(`{"query":{"term":{"conversation_id":"%s"}}}`, conversationID)
+	query := esTermQuery("conversation_id", conversationID)
 	res, err := s.client.Count(
 		s.client.Count.WithIndex(s.msgIndex),
 		s.client.Count.WithBody(strings.NewReader(query)),
@@ -184,13 +193,17 @@ func (s *ESConversationStore) updateConvCount(ctx context.Context, conversationI
 		return err
 	}
 
-	// Update conversation doc
-	update := fmt.Sprintf(`{"doc":{"message_count":%d,"updated_at":"%s"}}`,
-		countResp.Count, time.Now().UTC().Format(time.RFC3339))
+	update := map[string]interface{}{
+		"doc": map[string]interface{}{
+			"message_count": countResp.Count,
+			"updated_at":    time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	updateBody, _ := json.Marshal(update)
 	upRes, err := s.client.Update(
 		s.convIndex,
 		conversationID,
-		strings.NewReader(update),
+		strings.NewReader(string(updateBody)),
 	)
 	if err != nil {
 		return err
@@ -211,7 +224,10 @@ func (s *ESConversationStore) Create(ctx context.Context, id string, title strin
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}
-	body, _ := json.Marshal(doc)
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("marshal conversation doc: %w", err)
+	}
 	res, err := s.client.Index(s.convIndex, bytes.NewReader(body),
 		s.client.Index.WithDocumentID(id),
 		s.client.Index.WithRefresh("wait_for"),
@@ -267,13 +283,21 @@ func (s *ESConversationStore) List(ctx context.Context) ([]ConversationMeta, err
 
 // Load returns messages for a conversation, ordered by time ascending.
 func (s *ESConversationStore) Load(ctx context.Context, conversationID string) ([]*schema.Message, error) {
-	query := fmt.Sprintf(
-		`{"query":{"term":{"conversation_id":"%s"}},"sort":[{"order":{"order":"asc"}}],"size":1000}`,
-		conversationID,
-	)
+	query := map[string]interface{}{
+		"query": map[string]interface{}{
+			"term": map[string]interface{}{
+				"conversation_id": conversationID,
+			},
+		},
+		"sort": []map[string]interface{}{
+			{"order": map[string]string{"order": "asc"}},
+		},
+		"size": 1000,
+	}
+	queryBody, _ := json.Marshal(query)
 	res, err := s.client.Search(
 		s.client.Search.WithIndex(s.msgIndex),
-		s.client.Search.WithBody(strings.NewReader(query)),
+		s.client.Search.WithBody(strings.NewReader(string(queryBody))),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
@@ -320,7 +344,6 @@ func (s *ESConversationStore) Load(ctx context.Context, conversationID string) (
 
 // Delete removes a conversation and all its messages.
 func (s *ESConversationStore) Delete(ctx context.Context, conversationID string) error {
-	// Delete conversation document
 	delRes, err := s.client.Delete(s.convIndex, conversationID,
 		s.client.Delete.WithRefresh("wait_for"),
 	)
@@ -329,8 +352,7 @@ func (s *ESConversationStore) Delete(ctx context.Context, conversationID string)
 	}
 	defer delRes.Body.Close()
 
-	// Delete all messages for this conversation via delete_by_query
-	query := fmt.Sprintf(`{"query":{"term":{"conversation_id":"%s"}}}`, conversationID)
+	query := esTermQuery("conversation_id", conversationID)
 	dbqRes, err := s.client.DeleteByQuery(
 		[]string{s.msgIndex},
 		strings.NewReader(query),
@@ -346,7 +368,6 @@ func (s *ESConversationStore) Delete(ctx context.Context, conversationID string)
 	return nil
 }
 
-// Ensure conversation IDs are unique-ish at runtime.
 var convCounter int64
 
 // NewConversationID returns a unique conversation ID.

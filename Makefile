@@ -4,6 +4,7 @@
 # ── Local development ────────────────────────────────────
 
 build:
+	mkdir -p bin
 	go build -ldflags="-s -w" -o bin/goagent ./cmd/server
 
 test:
@@ -51,6 +52,7 @@ health:
 	curl -s http://localhost:8080/health | python3 -m json.tool 2>/dev/null || curl -s http://localhost:8080/health
 
 IMAGE ?= yourusername/goagent-pro
+# Example: make push IMAGE=registry.example.com/yourname/goagent-pro
 push: build-docker
 	docker tag goagentpro-app:latest $(IMAGE):latest
 	docker push $(IMAGE):latest

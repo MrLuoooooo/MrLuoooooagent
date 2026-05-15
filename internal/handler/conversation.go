@@ -69,7 +69,21 @@ func (h *ConversationHandler) GetMessages(c *gin.Context) {
 	}
 	items := make([]model.MessageItem, len(msgs))
 	for i, m := range msgs {
-		items[i] = model.MessageItem{Role: string(m.Role), Content: m.Content}
+		mi := model.MessageItem{Role: string(m.Role), Content: m.Content}
+		if len(m.ToolCalls) > 0 {
+			mi.ToolCalls = make([]model.ToolCall, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				mi.ToolCalls[j] = model.ToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+					Function: model.FunctionCall{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				}
+			}
+		}
+		items[i] = mi
 	}
 	c.JSON(http.StatusOK, model.OK(model.GetMessagesResponse{
 		ConversationID: convID, Total: len(items), Messages: items,
