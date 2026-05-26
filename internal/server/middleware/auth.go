@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/model"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 )
 
 // UserContextKey is the key used to store authenticated user info in the request context.

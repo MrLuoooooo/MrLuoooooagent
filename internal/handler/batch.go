@@ -1,0 +1,59 @@
+package handler
+
+import (
+	"encoding/json"
+	"io"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/pipeline"
+	"go.uber.org/zap"
+)
+
+// BatchHandler handles POST /api/v1/batch via the BatchPipeline.
+type BatchHandler struct {
+	pipeline *pipeline.BatchPipeline
+	logger   *zap.Logger
+}
+
+// NewBatchHandler creates a BatchHandler.
+func NewBatchHandler(pipeline *pipeline.BatchPipeline, logger *zap.Logger) *BatchHandler {
+	return &BatchHandler{pipeline: pipeline, logger: logger}
+}
+
+// HandleBatch executes a batch of tasks and streams progress via SSE.
+func (h *BatchHandler) HandleBatch(c *gin.Context) {
+	var req model.BatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Err(400, err.Error()))
+		return
+	}
+	if len(req.Tasks) == 0 {
+		c.JSON(http.StatusBadRequest, model.Err(400, "tasks 不能为空"))
+		return
+	}
+	if len(req.Tasks) > 10 {
+		c.JSON(http.StatusBadRequest, model.Err(400, "单次最�?10 个任�?))
+		return
+	}
+
+	// Setup SSE.
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+	c.Writer.Flush()
+
+	ch := h.pipeline.Execute(c.Request.Context(), req.Tasks)
+
+	c.Stream(func(w io.Writer) bool {
+		evt, ok := <-ch
+		if !ok {
+			return false
+		}
+		data, _ := json.Marshal(evt)
+		w.Write([]byte("data: " + string(data) + "\n\n"))
+		return evt.Type != model.BatchDone
+	})
+}

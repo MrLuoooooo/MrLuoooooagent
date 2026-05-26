@@ -1,22 +1,40 @@
-vendor/
-.env
+# Binaries
+bin/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 *.test
-*.out
-go.work
-go.work.sum
-configs/config.yaml
-*.local.yaml
-logs/
-*.log
+*.test.exe
+*.stackdump
+
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-*.tmp.*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.local
+.env.production
+
+# Logs
+logs/*.log
+
+# Build artifacts
+web/dist/
+web/node_modules/
+
+# WorkBuddy artifacts
+.workbuddy/artifacts/
+
+# Temporary files
+tmp/
+*.tmp

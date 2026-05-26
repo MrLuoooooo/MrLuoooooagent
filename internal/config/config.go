@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -29,12 +30,34 @@ func Load() (*Config, error) {
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		log.Printf("Warning: failed to read config file (%s/%s.yaml): %v", configPath, configName, err)
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			log.Printf("No config file found (%s/%s.yaml), using defaults and env vars", configPath, configName)
+		} else {
+			return nil, fmt.Errorf("read config file %s/%s.yaml: %w", configPath, configName, err)
+		}
 	}
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, err
+	}
+
+	// Viper's AutomaticEnv doesn't work with Unmarshal.
+	// Manually apply environment variable overrides for sensitive fields.
+	if key := os.Getenv("GOAGENT_MODEL_PROVIDER_CLOUD_API_KEY"); key != "" {
+		cfg.ModelProvider.Cloud.APIKey = key
+	}
+	if url := os.Getenv("GOAGENT_MODEL_PROVIDER_CLOUD_BASE_URL"); url != "" {
+		cfg.ModelProvider.Cloud.BaseURL = url
+	}
+	if model := os.Getenv("GOAGENT_MODEL_PROVIDER_CLOUD_CHAT_MODEL"); model != "" {
+		cfg.ModelProvider.Cloud.ChatModel = model
+	}
+	if key := os.Getenv("GOAGENT_AUTH_API_KEY"); key != "" {
+		cfg.Auth.APIKey = key
+	}
+	if key := os.Getenv("GOAGENT_SEARCH_API_KEY"); key != "" {
+		cfg.Search.APIKey = key
 	}
 
 	return &cfg, nil
@@ -47,23 +70,19 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.bash_timeout", 30)
 	v.SetDefault("server.cors_origins", []string{"*"})
 	v.SetDefault("server.rate_limit_rps", 10.0)
-	v.SetDefault("server.allowed_dirs", []string{`D:\goagentpro`, `C:\Users\35617\Desktop`})
+	v.SetDefault("server.allowed_dirs", []string{})
 
-	// Auth defaults (empty = dev mode, any token accepted).
 	v.SetDefault("auth.api_key", "")
 
-	// Model provider: auto mode, local disabled by default, cloud also disabled.
 	v.SetDefault("model_provider.mode", "auto")
 	v.SetDefault("model_provider.embedding_dimension", 1536)
 	v.SetDefault("model_provider.timeout", "120s")
 
-	// Ollama defaults.
 	v.SetDefault("model_provider.local.enabled", false)
 	v.SetDefault("model_provider.local.base_url", "http://localhost:11434")
 	v.SetDefault("model_provider.local.chat_model", "")
 	v.SetDefault("model_provider.local.embedding_model", "")
 
-	// Cloud defaults.
 	v.SetDefault("model_provider.cloud.enabled", false)
 	v.SetDefault("model_provider.cloud.type", "openai")
 	v.SetDefault("model_provider.cloud.api_key", "")
@@ -84,7 +103,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("document.chunk_overlap", 50)
 
 	v.SetDefault("conversation.max_history", 20)
-	v.SetDefault("conversation.storage_type", "elasticsearch") // 实际存储后端为 ES
+	v.SetDefault("conversation.storage_type", "elasticsearch")
 
 	v.SetDefault("search.enabled", false)
 	v.SetDefault("search.api_key", "")
@@ -98,4 +117,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.max_backups", 7)
 	v.SetDefault("log.max_age", 30)
 	v.SetDefault("log.compress", true)
+
+	v.SetDefault("stock.data_dir", "")
 }

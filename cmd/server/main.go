@@ -1,3 +1,12 @@
+// @title           GoAgentPro API
+// @version         4.1.2
+// @description     智能 Agent 对话系统 — RAG 检索增强生成、工具调用、多轮对话
+// @host            localhost:8080
+// @BasePath        /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in              header
+// @name            Authorization
+
 package main
 
 import (
@@ -7,8 +16,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/config"
-	server "github.com/yourusername/goagentpro/internal/server"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/scheduler"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/server"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/server/middleware"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -26,6 +37,8 @@ func startServer(
 	cfg *config.Config,
 	logger *zap.Logger,
 	engine *gin.Engine,
+	cronScheduler *scheduler.CronScheduler,
+	rateLimiter *middleware.RateLimiter,
 ) {
 	gin.SetMode(cfg.Server.Mode)
 
@@ -46,6 +59,9 @@ func startServer(
 		},
 		OnStop: func(ctx context.Context) error {
 			logger.Info("Shutting down server gracefully...")
+
+			cronScheduler.Stop()
+			rateLimiter.Stop()
 
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()

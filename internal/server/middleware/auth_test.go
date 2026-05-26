@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/model"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 )
 
 func init() { gin.SetMode(gin.TestMode) }

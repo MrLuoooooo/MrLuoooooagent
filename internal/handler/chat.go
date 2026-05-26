@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/model"
-	"github.com/yourusername/goagentpro/internal/service"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +37,6 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Auto-create conversation if no ID provided
 	convID := req.ConversationID
 	if convID == "" {
 		id, err := h.convSvc.Create(ctx, "新会话")
@@ -48,7 +48,6 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		convID = id
 	}
 
-	// Load history for existing conversations
 	var history []*schema.Message
 	if req.ConversationID != "" {
 		var err error
@@ -58,10 +57,8 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		}
 	}
 
-	// Save original question BEFORE prependHistory modifies it
 	originalQuestion := req.Question
 
-	// Inject history into question for LLM context (does NOT affect saved messages)
 	if len(history) > 0 {
 		req.Question = prependHistory(req.Question, history)
 	}
@@ -76,7 +73,6 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 }
 
 func (h *ChatHandler) handleInvoke(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
-	// Save user message with original question (before prependHistory).
 	if err := h.svc.SaveUserMessage(convID, originalQuestion); err != nil {
 		h.logger.Error("save user message before invoke", zap.String("conv_id", convID), zap.Error(err))
 	}
@@ -86,26 +82,25 @@ func (h *ChatHandler) handleInvoke(c *gin.Context, req model.ChatRequest, convID
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
+
 	c.JSON(http.StatusOK, model.OK(model.ChatResponseData{
 		Content: msg.Content, Role: string(msg.Role),
 	}))
 }
-
-// ── Streaming helpers ───────────────────────────────────────────────
 
 func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
 	if err := h.svc.SaveUserMessage(convID, originalQuestion); err != nil {
 		h.logger.Error("save user message before stream", zap.String("conv_id", convID), zap.Error(err))
 	}
 
-	h.setupSSE(c)
-
 	stream, err := h.svc.ChatStream(c.Request.Context(), req.Question)
 	if err != nil {
-		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventError, Content: err.Error()})
+		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
 	defer stream.Close()
+
+	h.setupSSE(c)
 
 	var full string
 	h.streamSSE(c, convID, stream, func(chunk *schema.Message) *model.StreamEvent {
@@ -126,39 +121,38 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			h.logger.Error("save user message before agent stream", zap.String("conv_id", convID), zap.Error(err))
 		}
 
-		h.setupSSE(c)
-
 		userMsg := &schema.Message{Role: schema.User, Content: req.Question}
 		stream, err := h.svc.AgentStream(c.Request.Context(), userMsg)
 		if err != nil {
-			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventError, Content: err.Error()})
+			c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 			return
 		}
 		defer stream.Close()
 
+		h.setupSSE(c)
+
 		var full string
 		var toolCalls []schema.ToolCall
-		seenTools := make(map[string]bool) // dedup tool_call events
+		seenTools := make(map[string]bool)
 
 		h.streamSSE(c, convID, stream, func(chunk *schema.Message) *model.StreamEvent {
-			// Emit tool_call events for new tool calls.
 			for _, tc := range chunk.ToolCalls {
 				if !seenTools[tc.ID] {
 					seenTools[tc.ID] = true
 					h.writeSSEEvent(c.Writer, model.StreamEvent{
-						Type: model.EventToolCall,
-						Tool:  fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
+						Type:     model.EventToolCall,
+						Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
 						ToolName: tc.Function.Name,
 						ToolArgs: tc.Function.Arguments,
 					})
 				}
 			}
 
-			// Emit tool_result when chunk is a tool response (Role=Tool).
 			if chunk.Role == schema.Tool {
+				content := toWindowsPath(chunk.Content)
 				return &model.StreamEvent{
 					Type:    model.EventToolResult,
-					Content: chunk.Content,
+					Content: content,
 				}
 			}
 
@@ -166,7 +160,7 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			if len(chunk.ToolCalls) > 0 {
 				toolCalls = chunk.ToolCalls
 			}
-			return &model.StreamEvent{Type: model.EventToken, Content: chunk.Content}
+			return &model.StreamEvent{Type: model.EventToken, Content: stripToolCode(chunk.Content)}
 		})
 
 		if full != "" {
@@ -177,7 +171,6 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		return
 	}
 
-	// Non-streaming agent — save user message with original question first.
 	if err := h.svc.SaveUserMessage(convID, originalQuestion); err != nil {
 		h.logger.Error("save user message before agent", zap.String("conv_id", convID), zap.Error(err))
 	}
@@ -187,12 +180,12 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
+
 	c.JSON(http.StatusOK, model.OK(model.ChatResponseData{
 		Content: msg.Content, Role: string(msg.Role),
 	}))
 }
 
-// setupSSE writes SSE headers and flushes them.
 func (h *ChatHandler) setupSSE(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -201,16 +194,13 @@ func (h *ChatHandler) setupSSE(c *gin.Context) {
 	c.Writer.Flush()
 }
 
-// writeSSEEvent marshals and writes a single SSE event.
 func (h *ChatHandler) writeSSEEvent(w io.Writer, evt model.StreamEvent) {
 	data, _ := json.Marshal(evt)
 	w.Write([]byte("data: " + string(data) + "\n\n"))
 }
 
-// emitFn produces an SSE event from a stream chunk, or nil to skip.
 type emitFn func(chunk *schema.Message) *model.StreamEvent
 
-// streamSSE is the common SSE read loop used by both RAG and Agent streaming.
 func (h *ChatHandler) streamSSE(c *gin.Context, convID string, stream *schema.StreamReader[*schema.Message], emit emitFn) {
 	c.Stream(func(w io.Writer) bool {
 		chunk, err := stream.Recv()
@@ -221,7 +211,7 @@ func (h *ChatHandler) streamSSE(c *gin.Context, convID string, stream *schema.St
 				return false
 			}
 			h.logger.Warn("stream recv error, sending error to client", zap.Error(err))
-				h.writeSSEEvent(w, model.StreamEvent{Type: model.EventError, Content: err.Error()})
+			h.writeSSEEvent(w, model.StreamEvent{Type: model.EventError, Content: err.Error()})
 			return false
 		}
 
@@ -239,13 +229,10 @@ func (h *ChatHandler) sendConvIDEvent(w io.Writer, convID string) {
 	})
 }
 
-// ── History formatting ────────────────────────────────────────────
-
 func prependHistory(q string, history []*schema.Message) string {
-	const maxHistory = 20        // max messages to keep
-	const maxContentLen = 2000    // max chars per message
+	const maxHistory = 20
+	const maxContentLen = 2000
 
-	// Take the last N messages to avoid context overflow.
 	if len(history) > maxHistory {
 		history = history[len(history)-maxHistory:]
 	}
@@ -290,4 +277,40 @@ func prependHistory(q string, history []*schema.Message) string {
 	b.WriteString("\n用户当前问题: ")
 	b.WriteString(q)
 	return b.String()
+}
+
+func toWindowsPath(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if i+2 < len(s) && s[i] == '/' && isDriveLetter(s[i+1]) && s[i+2] == '/' {
+			b.WriteByte(s[i+1])
+			b.WriteString(":\\")
+			i += 3
+			for i < len(s) {
+				if s[i] == '/' {
+					b.WriteByte('\\')
+				} else if s[i] == ' ' || s[i] == '\n' || s[i] == ',' || s[i] == ')' || s[i] == ']' {
+					break
+				} else {
+					b.WriteByte(s[i])
+				}
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isDriveLetter(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+var toolCodeRe = regexp.MustCompile(`(?s)<tool_code>.*?</tool_code>`)
+
+func stripToolCode(s string) string {
+	return toolCodeRe.ReplaceAllString(s, "")
 }

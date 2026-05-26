@@ -1,0 +1,9 @@
+.claude/
+.git/
+.workbuddy/
+logs/
+*.exe
+*.log
+node_modules/
+web/node_modules/
+tmp/

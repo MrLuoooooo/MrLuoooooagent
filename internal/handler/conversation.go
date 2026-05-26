@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/goagentpro/internal/model"
-	"github.com/yourusername/goagentpro/internal/service"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 )
 
 // ConversationHandler handles conversation CRUD via ConversationService.

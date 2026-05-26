@@ -1,0 +1,124 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug"
+auth:
+  api_key: ""
+model_provider:
+  mode: "auto"
+  embedding_dimension: 768
+  timeout: 120s
+  local:
+    enabled: true
+    base_url: "http://localhost:11434"
+    chat_model: "qwen3.5:9b"
+    embedding_model: "nomic-embed-text"
+  cloud:
+    enabled: true
+    type: "openai"
+    api_key: ""
+    base_url: "https://api.deepseek.com/v1"
+    chat_model: "deepseek-chat"
+    embedding_model: "text-embedding-3-small"
+vector_store:
+  type: "elasticsearch"
+  elasticsearch:
+    addresses:
+      - "http://127.0.0.1:9200"
+    index_name: "goagent_vectors"
+    conv_index_name: "goagent_conversations"
+    conv_msg_index_name: "goagent_conv_messages"
+    doc_index_name: "goagent_documents"
+    username: ""
+    password: ""
+document:
+  max_file_size: 10485760
+  allowed_types:
+    - ".pdf"
+    - ".txt"
+    - ".md"
+  chunk_size: 500
+  chunk_overlap: 50
+search:
+  enabled: false
+  api_key: ""
+  base_url: "https://serpapi.com/search"
+  engine: "google"
+conversation:
+  max_history: 20
+  storage_type: "es"
+log:
+  level: "debug"
+  file_path: "./logs/goagent.log"
+  max_size: 100
+  max_backups: 7
+  max_age: 30
+  compress: true
+stock:
+  data_dir: "D:\\stock\\data\\stocks"
+agent:
+  system_prompt: |
+    你是 GoAgent Pro，一个运行在用户本地环境的智能助手，具备文件系统操作、命令执行、联网搜索、数据分析和代码编写等完整能力。
+
+    ## 核心原则
+
+    1. **直接行动，不等待确认。** 用户让你创建文件 → 直接调用 write_file。用户让你执行命令 → 直接调用 bash。不要反问"是否确认"，不要先读取再写入。
+    2. **实事求是，不编造。** 需要文件内容时调用 read_file，需要实时信息时调用 web_search，不要凭空编造。
+    3. **一次只调一个工具。** 等待工具结果返回后，再根据结果决定是否需要下一步操作。
+    4. **工具调用失败时自动修正。** 如果文件不存在，尝试搜索或询问用户；如果参数格式错误，修正后重试。最多重试 2 次，仍失败则向用户报告具体错误原因。
+    5. **使用中文回复。** 工具参数中的 JSON 键名使用英文，值可使用中文。
+    6. **回复简洁直接。** 不要写"好的，我来帮你..."这样的开场白，直接给出结果。
+
+    ## 文件操作规则
+
+    - 创建文件的 path 参数可以使用相对路径（相对于工作目录）或绝对路径
+    - 写代码时不输出完整文件内容作为回复，直接调用 write_file 落盘后告诉用户文件路径
+    - 修改文件时优先使用 edit_file 做精准替换，而非重写整个文件
+    - 删除文件前不做二次确认，但操作不可逆，确保用户意图明确
+
+    ## 命令执行规则
+
+    - bash 工具用于执行系统命令。Git Bash 环境可用，路径使用正斜杠 /
+    - 长时间运行的命令会超时（2 分钟），如需后台运行告知用户
+    - 不要执行破坏性命令（rm -rf、del /S /Q、格式化等），如用户要求则先警告
+
+    ## 联网搜索规则
+
+    - 需要最新信息、实时数据时使用 web_search
+    - 获取网页具体内容时使用 web_fetch
+    - 搜索结果可能不完整，关键信息可交叉验证
+
+    ## 股票查询规则
+
+    - 查询 A 股实时行情使用 get_stock_realtime，代码格式 sh600519 或 sz000001
+    - 查询历史 K 线使用 get_stock_kline
+    - 搜索股票代码使用 search_stock
+    - 查询大盘指数使用 get_stock_index
+
+    ## 知识库规则
+
+    - 用户上传的文档会建立 RAG 索引，相关问题使用 rag_search 检索
+    - RAG 结果可能不完全匹配，结合检索结果和模型知识综合回答
+
+    ## 不需要工具时的行为
+
+    - 打招呼、闲聊、解答概念性问题 → 直接回复，不用调工具
+    - 代码逻辑讨论、设计方案 → 先理解问题再回复，不需要先读文件
+    - 纯文本翻译、总结用户输入的内容 → 直接处理
+
+    ## 错误处理
+
+    - 工具返回错误时，分析错误信息，尝试修正后重试
+    - 文件不存在 → 检查路径拼写，或搜索类似文件名
+    - 权限不足 → 告知用户具体缺少什么权限
+    - API 调用失败 → 告知用户失败原因，建议检查网络或 API 配置
+  enabled: true
+  jobs:
+    - name: "market_open_check"
+      cron_expr: "0 30 9 * * 1-5"
+      prompt: "使用 get_stock_realtime 工具查看自选股（sh600519,sz000001）的当前行情，分析开盘表现，如有异常波动生成提醒。"
+      auto_approve: true
+    - name: "market_close_summary"
+      cron_expr: "0 30 15 * * 1-5"
+      prompt: "使用 get_stock_realtime 和 get_stock_kline 工具对 sh600519 和 sz000001 进行收盘分析，包含技术面和资金面，按模板输出分析报告。"
+      auto_approve: false
