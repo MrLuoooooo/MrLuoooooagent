@@ -26,7 +26,7 @@ type CronScheduler struct {
 	approvals  *service.ApprovalStore
 }
 
-// NewCronScheduler creates and optionally starts the scheduler.
+// NewCronScheduler 启动定时任务调度器。
 func NewCronScheduler(
 	cfg *config.Config,
 	agentGraph compose.Runnable[*schema.Message, *schema.Message],

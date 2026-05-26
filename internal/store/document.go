@@ -37,7 +37,7 @@ type ESDocumentStore struct {
 	logger    *zap.Logger
 }
 
-// NewESDocumentStore creates an ES-backed document store.
+// NewESDocumentStore 连 ES 存文档元数据。
 func NewESDocumentStore(client *elasticsearch.Client, docIndex string, logger *zap.Logger) (*ESDocumentStore, error) {
 	s := &ESDocumentStore{
 		client:   client,
@@ -133,7 +133,7 @@ func (s *ESDocumentStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// List returns all stored document metadata, newest first.
+// List 列全部文档，最新在前。
 // Auto-recreates index on 404 and returns empty list.
 func (s *ESDocumentStore) List(ctx context.Context) ([]DocumentMeta, error) {
 	query := `{"query":{"match_all":{}},"sort":[{"created_at":{"order":"desc"}}],"size":1000}`

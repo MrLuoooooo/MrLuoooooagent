@@ -11,15 +11,14 @@ import (
 // UserContextKey is the key used to store authenticated user info in the request context.
 const UserContextKey = "auth_user"
 
-// Auth returns a Gin middleware that enforces token authentication.
+// Auth 根据配置拦截未认证请求，开发模式下放行。
 //
-// When cfg.Auth.APIKey is set (production mode):
-//   - Valid token → user = "authenticated", continue
-//   - Missing/invalid token → 401 with {"code":401,"message":"unauthorized"}
+// cfg.Auth.APIKey 有值时（生产模式）：
+//   - 有效 token → user = "authenticated"，继续
+//   - 缺失/无效 token → 401 {"code":401,"message":"unauthorized"}
 //
-// When cfg.Auth.APIKey is empty (development mode):
-//   - Any request passes through; user is tagged as "anonymous" or "authenticated"
-//     for observability, but no request is blocked.
+// cfg.Auth.APIKey 为空时（开发模式）：
+//   - 任何请求都放行，user 标记为 "anonymous" 或 "authenticated"，不做拦截。
 func Auth(cfg *Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user := "anonymous"

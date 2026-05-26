@@ -11,13 +11,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// BatchHandler handles POST /api/v1/batch via the BatchPipeline.
+// BatchHandler 管批量任务入口。
 type BatchHandler struct {
 	pipeline *pipeline.BatchPipeline
 	logger   *zap.Logger
 }
 
-// NewBatchHandler creates a BatchHandler.
+// NewBatchHandler —
 func NewBatchHandler(pipeline *pipeline.BatchPipeline, logger *zap.Logger) *BatchHandler {
 	return &BatchHandler{pipeline: pipeline, logger: logger}
 }
@@ -34,7 +34,7 @@ func (h *BatchHandler) HandleBatch(c *gin.Context) {
 		return
 	}
 	if len(req.Tasks) > 10 {
-		c.JSON(http.StatusBadRequest, model.Err(400, "单次最�?10 个任�?))
+		c.JSON(http.StatusBadRequest, model.Err(400, "单次最多 10 个任务"))
 		return
 	}
 

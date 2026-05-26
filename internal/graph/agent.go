@@ -19,7 +19,7 @@ func NewAgentGraph(
 	systemPrompt string,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
 
-	sysPrompt := systemPrompt + "\n" + buildPromptToolsSection(toolInfos)
+	sysPrompt := systemPrompt
 
 	graph := compose.NewGraph[*schema.Message, *schema.Message]()
 
@@ -52,7 +52,7 @@ func NewAgentGraph(
 			}
 			return []*schema.Message{
 				{Role: schema.System, Content: prompt},
-				msg,
+				{Role: schema.User, Content: prefixForContent(msg.Content)},
 			}, nil
 		},
 	))
@@ -106,6 +106,11 @@ func NewAgentGraph(
 	return graph.Compile(context.Background(), compose.WithMaxRunSteps(200))
 }
 
-func MustBindTools(cm model.ChatModel, tools []*schema.ToolInfo) error {
-	return cm.BindTools(tools)
+// prefixForContent detects write/create intent and guides tool usage.
+func prefixForContent(content string) string {
+	lower := strings.ToLower(content)
+	if strings.Contains(lower, "写") || strings.Contains(lower, "创建") || strings.Contains(lower, "write") || strings.Contains(lower, "create") {
+		return "TASK: " + content + " (Use write_file tool now. Do not list files or describe workspace.)"
+	}
+	return content
 }

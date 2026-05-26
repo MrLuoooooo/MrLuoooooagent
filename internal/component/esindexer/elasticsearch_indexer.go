@@ -16,15 +16,14 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
-// ElasticsearchIndexer implements the Eino Indexer interface (v0.8.13) for Elasticsearch.
+// ElasticsearchIndexer 把文档向量写入 ES。
 type ElasticsearchIndexer struct {
 	client    *elasticsearch.Client
 	indexName string
 	embedder  embedding.Embedder
 }
 
-// NewElasticsearchIndexer creates a new Elasticsearch indexer.
-// On creation, it ensures the ES index exists with the correct dense_vector mapping.
+// NewElasticsearchIndexer 连 ES 并在库里没有索引时自动建表。
 func NewElasticsearchIndexer(
 	client *elasticsearch.Client,
 	emb embedding.Embedder,
@@ -43,7 +42,7 @@ func NewElasticsearchIndexer(
 	}
 }
 
-// Store implements indexer.Indexer.
+// Store 批量写文档到 ES。如果文档元数据里已经有向量就直接用，省一次 embedding。
 func (e *ElasticsearchIndexer) Store(ctx context.Context, docs []*schema.Document, opts ...indexer.Option) ([]string, error) {
 	if len(docs) == 0 {
 		return nil, nil
@@ -129,7 +128,7 @@ func (e *ElasticsearchIndexer) Store(ctx context.Context, docs []*schema.Documen
 	return ids, nil
 }
 
-// ensureIndex creates the ES index with a dense_vector mapping if it doesn't exist.
+// ensureIndex 在库里没有索引时建表，带上 dense_vector mapping。
 func ensureIndex(client *elasticsearch.Client, indexName string, dim int) error {
 	res, err := client.Indices.Exists([]string{indexName})
 	if err != nil {
@@ -173,7 +172,7 @@ func ensureIndex(client *elasticsearch.Client, indexName string, dim int) error 
 	return nil
 }
 
-// DeleteByDocumentID removes all vector chunks belonging to a parent document.
+// DeleteByDocumentID 删掉某个文档的所有向量分块。
 func (e *ElasticsearchIndexer) DeleteByDocumentID(ctx context.Context, docID string) error {
 	query := fmt.Sprintf(`{"query":{"term":{"meta_data.document_id":"%s"}}}`, docID)
 	res, err := e.client.DeleteByQuery(

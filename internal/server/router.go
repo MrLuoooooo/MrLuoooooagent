@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// NewRouter creates and configures the Gin engine with all routes and middleware.
+// NewRouter 搭 Gin 引擎，挂所有路由和中间件。
 func NewRouter(
 	cfg *config.Config,
 	logger *zap.Logger,
@@ -79,5 +81,30 @@ func NewRouter(
 		v1.GET("/workspace/tree", wsH.ListTree)
 	}
 
+	// SPA 静态文件服务（web/dist）
+	distPath := filepath.Join(findProjectRoot(), "web", "dist")
+	if _, err := os.Stat(distPath); err == nil {
+		engine.Static("/assets", filepath.Join(distPath, "assets"))
+		engine.StaticFile("/vite.svg", filepath.Join(distPath, "vite.svg"))
+		engine.NoRoute(func(c *gin.Context) {
+			c.File(filepath.Join(distPath, "index.html"))
+		})
+	}
+
 	return engine
+}
+
+// findProjectRoot walks upward from the working directory to locate go.mod.
+func findProjectRoot() string {
+	dir, _ := os.Getwd()
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "."
+		}
+		dir = parent
+	}
 }

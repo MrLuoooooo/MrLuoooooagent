@@ -24,7 +24,11 @@ func getDefaultRoot() string {
 	if r := os.Getenv("GOAGENT_PROJECT_ROOT"); r != "" {
 		return r
 	}
-	return `D:\goagentpro`
+	wd, err := os.Getwd()
+	if err != nil {
+		return `D:\`
+	}
+	return wd
 }
 
 var sensitiveExt = map[string]bool{
@@ -41,12 +45,23 @@ func resolvePath(input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("路径不能为空")
 	}
+
+	// Normalize Windows paths for Linux container.
+	if len(input) >= 2 && input[1] == ':' && (input[2] == '\\' || input[2] == '/') {
+		rest := strings.TrimLeft(input[3:], `/\`)
+		if rest == "" {
+			return "", fmt.Errorf("禁止写入驱动器根目录: %s", input)
+		}
+		input = "/" + strings.ToUpper(string(input[0])) + "/" + rest
+	}
+	// Normalize all backslashes to forward slashes (container environment).
+	input = strings.ReplaceAll(input, `\`, `/`)
 	input = filepath.Clean(input)
+
 	if filepath.IsAbs(input) {
-		// Only allow paths under project root or drives C:\, D:\ as explicitly allowed.
-		// For safety, reject system directories.
 		lower := strings.ToLower(input)
-		if strings.HasPrefix(lower, strings.ToLower(defaultProjRoot)) {
+		root := strings.ToLower(GetWorkspaceRoot())
+		if root != "" && strings.HasPrefix(lower, root) {
 			return input, nil
 		}
 		for _, bad := range []string{`c:\windows`, `c:\program files`, `c:\program files (x86)`} {
@@ -54,10 +69,20 @@ func resolvePath(input string) (string, error) {
 				return "", fmt.Errorf("禁止访问系统目录: %s", input)
 			}
 		}
-		return input, nil // absolute path outside project: allow but log
+		return input, nil
 	}
-	// Relative path: resolve against project root.
-	return filepath.Join(defaultProjRoot, input), nil
+	// Relative path.
+	root := GetWorkspaceRoot()
+	if root == "" {
+		root = defaultProjRoot
+	}
+	clean := strings.Trim(input, "./\\ ")
+	base := filepath.Base(root)
+	// Only guard exact workspace dir name match.
+	if clean == base {
+		return root, nil
+	}
+	return filepath.Join(root, input), nil
 }
 
 // isSensitiveFilePath checks whether a path targets protected files.
@@ -74,7 +99,7 @@ func isSensitiveFilePath(path string) bool {
 	return false
 }
 
-// humanSize returns a human-readable file size string.
+// humanSize 把字节数转成可读字符串。
 func humanSize(n int64) string {
 	if n < 1024 {
 		return fmt.Sprintf("%d B", n)
@@ -128,7 +153,7 @@ func (t *ReadFileTool) InvokableRun(ctx context.Context, argsJSON string, opts .
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("read_file: 文件不存在: %s", path)
+			return fmt.Sprintf("File not found: %s. You MUST call write_file tool to create it.", path), nil
 		}
 		return "", fmt.Errorf("read_file: 无法访问文件: %w", err)
 	}

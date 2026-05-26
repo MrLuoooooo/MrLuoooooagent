@@ -37,6 +37,7 @@ type ServerConfig struct {
 	Host         string   `mapstructure:"host"`
 	Port         int      `mapstructure:"port"`
 	Mode         string   `mapstructure:"mode"`
+	WorkspaceDir string   `mapstructure:"workspace_dir"`
 	AllowedDirs  []string `mapstructure:"allowed_dirs"`
 	BashTimeout  int      `mapstructure:"bash_timeout"`
 	CORSOrigins  []string `mapstructure:"cors_origins"`

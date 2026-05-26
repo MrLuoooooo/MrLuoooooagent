@@ -10,20 +10,17 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 )
 
-// BatchPipeline executes multiple prompts through the agent graph using
-// an Eino composed graph for task orchestration, then streams progress via
-// a Go channel consumed by the SSE handler.
+// BatchPipeline 通过 Agent 图串行执行一批任务，进度通过 channel 推到 SSE。
 type BatchPipeline struct {
 	agentGraph compose.Runnable[*schema.Message, *schema.Message]
 }
 
-// NewBatchPipeline creates a BatchPipeline.
+// NewBatchPipeline —
 func NewBatchPipeline(agentGraph compose.Runnable[*schema.Message, *schema.Message]) *BatchPipeline {
 	return &BatchPipeline{agentGraph: agentGraph}
 }
 
-// trySend attempts to send an event to the channel, respecting context cancellation.
-// Returns false if the context is done (client disconnected).
+// trySend 往 channel 发事件，ctx 取消了就放弃。
 func trySend[T any](ctx context.Context, ch chan<- T, v T) bool {
 	select {
 	case <-ctx.Done():
@@ -33,9 +30,8 @@ func trySend[T any](ctx context.Context, ch chan<- T, v T) bool {
 	}
 }
 
-// Execute runs all tasks sequentially and sends progress events to the returned channel.
-// The caller is responsible for reading from the channel until it is closed.
-// If ctx is cancelled (client disconnect or timeout), the goroutine exits cleanly.
+// Execute 串行跑所有任务，返回进度 channel。调用方读完 channel 关闭为止。
+// ctx 取消时（客户端断开）协程会干净退出。
 func (p *BatchPipeline) Execute(
 	ctx context.Context,
 	tasks []model.BatchTask,
@@ -126,8 +122,7 @@ func countOK(results []resultEntry) int {
 	return n
 }
 
-// Graph returns an Eino graph that wraps Execute for use within larger composes.
-// The input is a []model.BatchTask, output is a single summary string.
+// Graph 把 Execute 包成 Eino 图，在更大 composes 里复用。
 func (p *BatchPipeline) Graph() compose.Runnable[[]model.BatchTask, string] {
 	g := compose.NewGraph[[]model.BatchTask, string]()
 

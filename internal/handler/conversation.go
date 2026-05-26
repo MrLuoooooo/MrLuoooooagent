@@ -9,17 +9,17 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 )
 
-// ConversationHandler handles conversation CRUD via ConversationService.
+// ConversationHandler 管会话的增删查。
 type ConversationHandler struct {
 	svc *service.ConversationService
 }
 
-// NewConversationHandler creates a ConversationHandler.
+// NewConversationHandler —
 func NewConversationHandler(svc *service.ConversationService) *ConversationHandler {
 	return &ConversationHandler{svc: svc}
 }
 
-// CreateConversation handles POST /api/v1/conversations.
+// CreateConversation 建新会话。
 func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	var req model.CreateConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -37,7 +37,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	}))
 }
 
-// ListConversations handles GET /api/v1/conversations.
+// ListConversations 列全部会话。
 func (h *ConversationHandler) ListConversations(c *gin.Context) {
 	convs, err := h.svc.List(c.Request.Context())
 	if err != nil {
@@ -59,7 +59,7 @@ func (h *ConversationHandler) ListConversations(c *gin.Context) {
 	}))
 }
 
-// GetMessages handles GET /api/v1/conversations/:conversation_id/messages.
+// GetMessages 取某个会话的历史消息。
 func (h *ConversationHandler) GetMessages(c *gin.Context) {
 	convID := c.Param("conversation_id")
 	msgs, err := h.svc.LoadMessages(c.Request.Context(), convID)
@@ -90,7 +90,7 @@ func (h *ConversationHandler) GetMessages(c *gin.Context) {
 	}))
 }
 
-// DeleteConversation handles DELETE /api/v1/conversations/:conversation_id.
+// DeleteConversation 删一个会话。
 func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 	convID := c.Param("conversation_id")
 	if err := h.svc.Delete(c.Request.Context(), convID); err != nil {

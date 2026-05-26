@@ -9,11 +9,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"go.uber.org/zap"
 )
 
-// WorkspaceHandler manages the agent's working directory.
+// WorkspaceHandler 管 Agent 工作目录的切换和浏览。
 type WorkspaceHandler struct {
 	currentDir string
 	logger     *zap.Logger
@@ -36,11 +37,24 @@ func toContainer(p string) string {
 	return p
 }
 
-// NewWorkspaceHandler creates a WorkspaceHandler with sensible default.
-func NewWorkspaceHandler(logger *zap.Logger) *WorkspaceHandler {
+// NewWorkspaceHandler 优先用配置里的工作目录，否则取当前目录。
+func NewWorkspaceHandler(logger *zap.Logger, cfg config.ServerConfig) *WorkspaceHandler {
+	// 优先使用配置中的工作目录
+	if cfg.WorkspaceDir != "" {
+		if info, err := os.Stat(cfg.WorkspaceDir); err == nil && info.IsDir() {
+			wd := toWin(cfg.WorkspaceDir)
+			tool.SetWorkspaceRoot(wd)
+			logger.Info("workspace restored from config", zap.String("path", wd))
+			return &WorkspaceHandler{currentDir: wd, logger: logger}
+		}
+		logger.Warn("configured workspace_dir not found, falling back", zap.String("path", cfg.WorkspaceDir))
+	}
+	// 自动检测候选目录
 	candidates := []string{`D:\`, "/D/"}
 	home, _ := os.UserHomeDir()
-	candidates = append(candidates, home)
+	if home != "" {
+		candidates = append(candidates, home)
+	}
 	for _, dir := range candidates {
 		if info, err := os.Stat(dir); err == nil && info.IsDir() {
 			tool.SetWorkspaceRoot(dir)
@@ -91,7 +105,7 @@ func (h *WorkspaceHandler) SetCurrent(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(gin.H{"path": raw}))
 }
 
-// ListTree returns a directory tree starting from the current workspace.
+// ListTree 从当前工作目录开始返回目录树。
 func (h *WorkspaceHandler) ListTree(c *gin.Context) {
 	depth := 3
 	root := toContainer(h.currentDir)
@@ -107,7 +121,7 @@ func (h *WorkspaceHandler) ListTree(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(tree))
 }
 
-// ListDrives returns available drives (Windows) or root directories.
+// ListDrives 列出盘符（Windows）或根目录。
 func (h *WorkspaceHandler) ListDrives(c *gin.Context) {
 	var items []gin.H
 	for _, drive := range "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {

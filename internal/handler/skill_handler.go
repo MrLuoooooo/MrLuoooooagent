@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// SkillHandler handles skill CRUD endpoints.
+// SkillHandler 管技能的增删查。
 type SkillHandler struct {
 	store  *service.SkillStore
 	logger *zap.Logger
@@ -19,7 +19,7 @@ func NewSkillHandler(store *service.SkillStore, logger *zap.Logger) *SkillHandle
 	return &SkillHandler{store: store, logger: logger}
 }
 
-// List returns all skills.
+// List 列出所有技能。
 func (h *SkillHandler) List(c *gin.Context) {
 	skills := h.store.All()
 	if skills == nil {

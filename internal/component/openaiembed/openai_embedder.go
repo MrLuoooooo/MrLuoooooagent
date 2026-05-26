@@ -12,7 +12,7 @@ import (
 	"github.com/cloudwego/eino/components/embedding"
 )
 
-// OpenAIEmbedder implements the Eino Embedder interface (v0.8.13) for OpenAI API.
+// OpenAIEmbedder 调 OpenAI 兼容 embedding 接口做文本向量化。
 type OpenAIEmbedder struct {
 	apiKey  string
 	model   string
@@ -20,7 +20,7 @@ type OpenAIEmbedder struct {
 	client  *http.Client
 }
 
-// NewOpenAIEmbedder creates a new OpenAI embedder.
+// NewOpenAIEmbedder 初始化 embedding 客户端。
 func NewOpenAIEmbedder(apiKey, model, baseURL string) embedding.Embedder {
 	return &OpenAIEmbedder{
 		apiKey:  apiKey,
@@ -32,7 +32,7 @@ func NewOpenAIEmbedder(apiKey, model, baseURL string) embedding.Embedder {
 	}
 }
 
-// EmbedStrings implements embedding.Embedder (v0.8.13 API).
+// EmbedStrings 批量把文本转成向量，超 2048 条自动分批。
 func (e *OpenAIEmbedder) EmbedStrings(ctx context.Context, texts []string, opts ...embedding.Option) ([][]float64, error) {
 	const maxBatchSize = 2048
 

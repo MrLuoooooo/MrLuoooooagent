@@ -18,7 +18,7 @@ type ApprovalStore struct {
 	maxItems int
 }
 
-// NewApprovalStore creates an empty ApprovalStore.
+// NewApprovalStore —
 func NewApprovalStore() *ApprovalStore {
 	return &ApprovalStore{items: make([]*model.ApprovalItem, 0), maxItems: maxApprovalItems}
 }
@@ -35,7 +35,7 @@ func (s *ApprovalStore) Add(item *model.ApprovalItem) {
 	s.items = append(s.items, item)
 }
 
-// Pending returns all pending approval items.
+// Pending 列出待审批的。
 func (s *ApprovalStore) Pending() []*model.ApprovalItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -48,7 +48,7 @@ func (s *ApprovalStore) Pending() []*model.ApprovalItem {
 	return pending
 }
 
-// All returns all approval items (including processed ones).
+// All 列出全部审批项。
 func (s *ApprovalStore) All() []*model.ApprovalItem {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -57,7 +57,7 @@ func (s *ApprovalStore) All() []*model.ApprovalItem {
 	return result
 }
 
-// Get returns a single approval item by ID.
+// Get 按 ID 取一个审批项。
 func (s *ApprovalStore) Get(id string) (*model.ApprovalItem, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

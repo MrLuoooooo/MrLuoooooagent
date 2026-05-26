@@ -15,19 +15,19 @@ import (
 	"go.uber.org/zap"
 )
 
-// ChatHandler handles POST /api/v1/chat via the ChatService.
+// ChatHandler 处理 /api/v1/chat，分发到 RAG 流式/非流式或 Agent 三种路径。
 type ChatHandler struct {
 	svc     *service.ChatService
 	convSvc *service.ConversationService
 	logger  *zap.Logger
 }
 
-// NewChatHandler creates a ChatHandler.
+// NewChatHandler —
 func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *ChatHandler {
 	return &ChatHandler{svc: svc, convSvc: convSvc, logger: logger}
 }
 
-// Chat handles POST /api/v1/chat.
+// Chat 入口：解析请求 → 自动建会话 → load 历史 → 按 stream/agent 分发。
 func (h *ChatHandler) Chat(c *gin.Context) {
 	var req model.ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

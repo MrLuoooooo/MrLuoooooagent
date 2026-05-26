@@ -145,7 +145,7 @@ type BashTool struct {
 	defaultDir  string
 }
 
-// NewBashTool creates a new BashTool.
+// NewBashTool —
 func NewBashTool(allowedDirs []string) *BashTool {
 	if len(allowedDirs) == 0 {
 		allowedDirs = []string{defaultProjRoot}
@@ -271,7 +271,7 @@ type WriteAndExecuteTool struct {
 	bash *BashTool
 }
 
-// NewWriteAndExecuteTool creates a WriteAndExecuteTool.
+// NewWriteAndExecuteTool —
 func NewWriteAndExecuteTool(allowedDirs []string) *WriteAndExecuteTool {
 	return &WriteAndExecuteTool{
 		bash: NewBashTool(allowedDirs),
@@ -368,7 +368,7 @@ func (t *WriteAndExecuteTool) InvokableRun(ctx context.Context, argsJSON string,
 
 // ── 辅助函数 ──────────────────────────────────────────────
 
-// makeCmd creates an exec.Cmd with the appropriate shell for the current OS.
+// makeCmd 按当前 OS 挑 shell。
 func makeCmd(ctx context.Context, command, workDir string, stdout, stderr *bytes.Buffer) *exec.Cmd {
 	var c *exec.Cmd
 	if isWindows {

@@ -50,7 +50,7 @@ type StockRealtimeTool struct {
 	dataDir string
 }
 
-// NewStockRealtimeTool creates a StockRealtimeTool.
+// NewStockRealtimeTool —
 func NewStockRealtimeTool(dataDir string) *StockRealtimeTool {
 	if dataDir == "" {
 		dataDir = `D:\stock\data\stocks`
@@ -139,7 +139,7 @@ type StockKLineTool struct {
 	dataDir string
 }
 
-// NewStockKLineTool creates a StockKLineTool.
+// NewStockKLineTool —
 func NewStockKLineTool(dataDir string) *StockKLineTool {
 	if dataDir == "" {
 		dataDir = `D:\stock\data\stocks`

@@ -7,12 +7,12 @@ type APIEnvelope struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// OK returns a 200 envelope with the given data.
+// OK 返回 200 封包。
 func OK(data interface{}) APIEnvelope {
 	return APIEnvelope{Code: 0, Message: "success", Data: data}
 }
 
-// Err returns an error envelope.
+// Err 返回错误封包。
 func Err(code int, msg string) APIEnvelope {
 	return APIEnvelope{Code: code, Message: msg}
 }

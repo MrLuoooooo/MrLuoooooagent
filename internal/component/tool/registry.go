@@ -31,7 +31,7 @@ func Register(t Tool) error {
 	return globalRegistry.Add(t)
 }
 
-// RegisteredTools returns all tools registered globally.
+// RegisteredTools 返回全局注册的所有工具。
 func RegisteredTools() []Tool {
 	return globalRegistry.List()
 }
@@ -49,7 +49,7 @@ func (r *Registry) Add(t Tool) error {
 	return nil
 }
 
-// List returns all registered tools.
+// List 列出所有已注册工具。
 func (r *Registry) List() []Tool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

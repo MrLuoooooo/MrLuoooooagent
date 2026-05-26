@@ -10,18 +10,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// DocumentHandler handles document management via the DocumentService.
+// DocumentHandler 管文档的上传、列表和删除。
 type DocumentHandler struct {
 	svc    *service.DocumentService
 	logger *zap.Logger
 }
 
-// NewDocumentHandler creates a DocumentHandler.
+// NewDocumentHandler —
 func NewDocumentHandler(svc *service.DocumentService, logger *zap.Logger) *DocumentHandler {
 	return &DocumentHandler{svc: svc, logger: logger}
 }
 
-// UploadDocument handles POST /api/v1/documents.
+// UploadDocument 接收文件上传。
 func (h *DocumentHandler) UploadDocument(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -54,7 +54,7 @@ func (h *DocumentHandler) UploadDocument(c *gin.Context) {
 	}))
 }
 
-// DeleteDocument handles DELETE /api/v1/documents/:document_id.
+// DeleteDocument 按 ID 删文档。
 func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 	docID := c.Param("document_id")
 	if err := h.svc.DeleteDocument(c.Request.Context(), docID); err != nil {
@@ -67,7 +67,7 @@ func (h *DocumentHandler) DeleteDocument(c *gin.Context) {
 	}))
 }
 
-// ListDocuments handles GET /api/v1/documents.
+// ListDocuments 列全部文档。
 func (h *DocumentHandler) ListDocuments(c *gin.Context) {
 	docs, err := h.svc.ListDocuments(c.Request.Context())
 	if err != nil {

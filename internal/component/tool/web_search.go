@@ -19,9 +19,8 @@ type searchHTTP interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// WebSearchTool performs web searches via a configurable search API backend.
-// When search is disabled (default), InvokableRun returns a friendly error.
-// Supported formats: serpapi, brave, bing.
+// WebSearchTool 通过可配置的搜索 API 后端执行网页搜索。
+// 支持 serpapi、brave、bing 格式。
 type WebSearchTool struct {
 	baseURL string
 	apiKey  string
@@ -31,9 +30,8 @@ type WebSearchTool struct {
 	client  searchHTTP
 }
 
-// NewWebSearchTool creates a WebSearchTool.
-// Pass empty apiKey or enabled=false to disable search.
-// format: "serpapi" (default), "brave", or "bing".
+// NewWebSearchTool — apiKey 空或 enabled=false 时搜索关闭。
+// format: "serpapi"（默认）、"brave" 或 "bing"。
 func NewWebSearchTool(baseURL, apiKey, engine, format string, enabled bool) *WebSearchTool {
 	if format == "" {
 		format = "serpapi"
@@ -61,7 +59,7 @@ func NewWebSearchTool(baseURL, apiKey, engine, format string, enabled bool) *Web
 	}
 }
 
-// Info implements tool.BaseTool.
+// Info —
 func (w *WebSearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "web_search",
@@ -76,7 +74,7 @@ func (w *WebSearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
-// InvokableRun implements tool.InvokableTool.
+// InvokableRun —
 func (w *WebSearchTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	var args struct {
 		Query string `json:"query"`

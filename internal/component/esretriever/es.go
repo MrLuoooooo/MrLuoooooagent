@@ -12,7 +12,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
-// ESRRetriever implements the Eino Retriever interface backed by Elasticsearch kNN.
+// ESRRetriever 用 ES kNN 做向量检索。
 type ESRRetriever struct {
 	client    *elasticsearch.Client
 	embedder  embedding.Embedder
@@ -20,7 +20,7 @@ type ESRRetriever struct {
 	topK      int
 }
 
-// NewESRetriever creates a new Elasticsearch-backed Retriever.
+// NewESRetriever 建一个 ES 向量检索器。
 func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexName string, topK int) retriever.Retriever {
 	return &ESRRetriever{
 		client:    client,
@@ -30,7 +30,7 @@ func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexN
 	}
 }
 
-// Retrieve implements retriever.Retriever.
+// Retrieve 把 query 转成向量，从 ES 里搜 topK 条最相似的文档。
 func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retriever.Option) ([]*schema.Document, error) {
 	options := retriever.GetCommonOptions(&retriever.Options{
 		TopK: &r.topK,

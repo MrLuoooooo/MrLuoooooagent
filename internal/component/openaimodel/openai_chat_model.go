@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// OpenAIChatModel implements the Eino ChatModel interface (v0.8.13, model.ChatModel).
+// OpenAIChatModel 封装了 OpenAI 兼容的 /chat/completions 接口，支持流式和非流式调用。
 type OpenAIChatModel struct {
 	apiKey  string
 	model   string
@@ -26,7 +26,7 @@ type OpenAIChatModel struct {
 	logger  *zap.Logger
 }
 
-// NewOpenAIChatModel creates a new OpenAI chat model.
+// NewOpenAIChatModel 初始化一个 OpenAI 兼容 ChatModel。
 func NewOpenAIChatModel(apiKey, modelName, baseURL string, logger *zap.Logger) model.ChatModel {
 	return &OpenAIChatModel{
 		apiKey:  apiKey,
@@ -116,7 +116,7 @@ func toolNames(tools []openAITool) []string {
 	return names
 }
 
-// Generate implements model.BaseChatModel.
+// Generate 非流式调用，发一次请求返回完整回复。
 func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
 	reqBody := m.buildRequest(input, false, parseOptions(opts))
 
@@ -147,7 +147,7 @@ func (m *OpenAIChatModel) Generate(ctx context.Context, input []*schema.Message,
 	return convertToMessage(respBody.Choices[0].Message), nil
 }
 
-// Stream implements model.BaseChatModel.
+// Stream 流式调用，返回 SSE 事件的 StreamReader。
 func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
 	reqBody := m.buildRequest(input, true, parseOptions(opts))
 
@@ -263,7 +263,7 @@ func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, o
 	return streamReader, nil
 }
 
-// BindTools implements model.ChatModel.
+// BindTools 把工具定义转成 OpenAI function calling 格式，后续请求自动带上。
 func (m *OpenAIChatModel) BindTools(tools []*schema.ToolInfo) error {
 	m.tools = make([]openAITool, len(tools))
 	for i, t := range tools {

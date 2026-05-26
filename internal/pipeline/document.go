@@ -13,12 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// NewDocumentIngestionChain builds a Runnable[[]byte, []string] that:
-//   1. Treats the byte input as raw text
-//   2. Chunks the text into segments
-//   3. Embeds each chunk
-//   4. Stores in the vector index
-//   5. Returns the assigned document IDs
+// NewDocumentIngestionChain 文档摄入流水线：切分 → embedding → 写入向量库，返回文档 ID。
 func NewDocumentIngestionChain(
 	emb embedding.Embedder,
 	idx indexer.Indexer,
@@ -77,7 +72,7 @@ func NewDocumentIngestionChain(
 				docs[i].MetaData["vector"] = vectors[i]
 			}
 
-			// 4. Index — store returns assigned chunk IDs.
+			// 4. 写入向量库，返回分块 ID。
 			chunkIDs, err := idx.Store(ctx, docs)
 			if err != nil {
 				return nil, fmt.Errorf("document chain: index: %w", err)

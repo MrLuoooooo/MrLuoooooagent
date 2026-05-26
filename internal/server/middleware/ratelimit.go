@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RateLimiter implements a simple per-IP token bucket rate limiter.
+// RateLimiter 按 IP 限流，token bucket 实现。
 type RateLimiter struct {
 	mu       sync.Mutex
 	buckets  map[string]*tokenBucket
@@ -22,7 +22,7 @@ type tokenBucket struct {
 	lastTime time.Time
 }
 
-// NewRateLimiter creates a rate limiter with the given rate (req/s) and burst capacity.
+// NewRateLimiter — rate 是每秒请求数，burst 是突发容量。
 func NewRateLimiter(rate, capacity float64) *RateLimiter {
 	rl := &RateLimiter{
 		buckets:  make(map[string]*tokenBucket),
@@ -86,7 +86,7 @@ func (rl *RateLimiter) allow(ip string) bool {
 	return false
 }
 
-// Middleware returns a Gin middleware that limits requests per IP.
+// Middleware 返回 Gin 中间件，按 IP 限流。
 func (rl *RateLimiter) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ip := c.ClientIP()

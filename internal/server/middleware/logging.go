@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Logger returns a Gin middleware that logs every request.
+// Logger 记录每个请求的耗时和状态码。
 func Logger(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

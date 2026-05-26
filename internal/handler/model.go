@@ -10,13 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// ModelSwitcher abstracts the model switching capability.
+// ModelSwitcher 模型切换的抽象接口。
 type ModelSwitcher interface {
 	Switch(modelName string) error
 	CurrentName() string
 }
 
-// ModelHandler handles model list, switch, and custom model CRUD.
+// ModelHandler 管模型列表、切换和自定义模型 CRUD。
 type ModelHandler struct {
 	cfg     *config.Config
 	manager ModelSwitcher
@@ -37,8 +37,7 @@ type modelItem struct {
 	Active   bool   `json:"active"`
 }
 
-// ListAvailable returns all models: config model_list + custom models.
-// Ollama models get is_local=true and "(本地)" suffix in the display name.
+// ListAvailable 列出配置里和用户自定义的全部模型。
 func (h *ModelHandler) ListAvailable(c *gin.Context) {
 	current := h.manager.CurrentName()
 	seen := make(map[string]bool)
@@ -72,7 +71,7 @@ func (h *ModelHandler) toItem(m config.ModelEntry, isCustom bool, current string
 	}
 }
 
-// SwitchModel handles model switch requests (works for both config and custom models).
+// SwitchModel 切模型。
 func (h *ModelHandler) SwitchModel(c *gin.Context) {
 	var req struct {
 		Model string `json:"model" binding:"required"`
@@ -89,7 +88,7 @@ func (h *ModelHandler) SwitchModel(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(gin.H{"model": req.Model, "message": "switched successfully"}))
 }
 
-// AddCustomModel handles POST /api/v1/models �?adds a user-defined model entry.
+// AddCustomModel 加一个自定义模型。
 func (h *ModelHandler) AddCustomModel(c *gin.Context) {
 	var entry config.ModelEntry
 	if err := c.ShouldBindJSON(&entry); err != nil {
@@ -108,7 +107,7 @@ func (h *ModelHandler) AddCustomModel(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(gin.H{"name": entry.Name, "message": "model added"}))
 }
 
-// RemoveCustomModel handles DELETE /api/v1/models/:name �?removes a custom model.
+// RemoveCustomModel 删一个自定义模型。
 func (h *ModelHandler) RemoveCustomModel(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Remove(name); err != nil {

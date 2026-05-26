@@ -6,9 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CORS returns a Gin middleware that adds CORS headers for frontend access.
-// If allowedOrigins is non-empty, the first origin is used in Allow-Origin.
-// When empty or the first entry is "*", Allow-Origin: * is used.
+// CORS 加跨域头，允许前端访问。
+// allowedOrigins 非空时用第一个 origin，否则用 *。
 func CORS(allowedOrigins []string) gin.HandlerFunc {
 	allowOrigin := "*"
 	if len(allowedOrigins) > 0 && allowedOrigins[0] != "*" {

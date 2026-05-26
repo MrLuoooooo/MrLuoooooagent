@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// ModelManager implements model.ChatModel and supports runtime model switching
-// via atomic.Value. Looks up models from config model_list AND custom ModelStore.
+// ModelManager 包装 ChatModel，支持运行时切换模型。
+// 通过 atomic.Value 实现。从 config model_list 和 custom ModelStore 中查找模型。
 type ModelManager struct {
 	current   atomic.Value // stores model.ChatModel
 	cfg       *config.Config
@@ -44,8 +44,7 @@ func NewModelManager(initial model.ChatModel, cfg *config.Config, customStore *s
 	return mm
 }
 
-// Switch creates a new OpenAIChatModel from the named entry (searches config
-// model_list first, then custom models), re-binds tools, and atomically swaps.
+// Switch 按名字切到新模型（先查 config model_list，再查自定义模型），重新 bind tools 后原子替换。
 func (m *ModelManager) Switch(modelName string) error {
 	entry := m.findEntry(modelName)
 	if entry == nil {

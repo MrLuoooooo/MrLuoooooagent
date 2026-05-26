@@ -8,15 +8,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// MessagePersister is the minimal persistence interface ChatService needs.
-// Using an interface here instead of *ConversationService directly means
-// tests can provide a simple mock without importing the store package.
+// MessagePersister 是 ChatService 对持久化层的最小依赖。
+// 用接口而不是直接引用 ConversationService，方便测试 mock。
 type MessagePersister interface {
 	SaveMessages(ctx context.Context, convID string, msgs []*schema.Message) error
 }
 
-// ChatService decouples HTTP handlers from Eino Runnable.
-// It also owns message persistence via MessagePersister.
+// ChatService 把 handler 和 Eino 图/链解耦，顺带管消息持久化。
 type ChatService struct {
 	ragChain   compose.Runnable[string, *schema.Message]
 	agentGraph compose.Runnable[*schema.Message, *schema.Message]
@@ -25,7 +23,7 @@ type ChatService struct {
 }
 
 
-// NewChatService creates a ChatService.
+// NewChatService —
 func NewChatService(
 	ragChain compose.Runnable[string, *schema.Message],
 	agentGraph compose.Runnable[*schema.Message, *schema.Message],
@@ -35,8 +33,8 @@ func NewChatService(
 	return &ChatService{ragChain: ragChain, agentGraph: agentGraph, persister: persister, logger: logger}
 }
 
-// Chat invokes the RAG chain, persists the assistant message, and returns it.
-// User message must be saved by the handler before calling this (to keep original question).
+// Chat 走 RAG 链，回答完自动写 ES。
+// handler 调用前要自己 SaveUserMessage，保证原始问题先落库。
 func (s *ChatService) Chat(ctx context.Context, question string, convID string) (*schema.Message, error) {
 	msg, err := s.ragChain.Invoke(ctx, question)
 	if err != nil {
@@ -52,9 +50,7 @@ func (s *ChatService) Chat(ctx context.Context, question string, convID string) 
 	return msg, nil
 }
 
-// ChatStream returns a stream reader for RAG streaming.
-// The caller is responsible for collecting the full response and calling SaveMessages.
-// We expose the convSvc so the handler can persist after stream ends.
+// ChatStream 返回 RAG 流。handler 自己收流、拼完整后再调 SaveMessages。
 func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.ragChain.Stream(ctx, question)
 	if err != nil {
@@ -64,17 +60,14 @@ func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.
 	return stream, nil
 }
 
-// SaveUserMessage persists a single user message immediately (before streaming starts).
-// This ensures the user's question is not lost if the page is refreshed mid-stream.
-// Uses context.Background() to avoid HTTP request cancellation races.
+// SaveUserMessage 先落用户消息（流还没开始时写），防止页面刷新丢数据。
 func (s *ChatService) SaveUserMessage(convID, question string) error {
 	return s.persister.SaveMessages(context.Background(), convID, []*schema.Message{
 		{Role: schema.User, Content: question},
 	})
 }
 
-// SaveAssistantMessage persists only the assistant response (user was already saved).
-// This avoids duplicating the user message in ES when called after SaveUserMessage.
+// SaveAssistantMessage 只写助手回复，不重复写用户消息。
 func (s *ChatService) SaveAssistantMessage(convID, answer string, toolCalls []schema.ToolCall) error {
 	msg := &schema.Message{Role: schema.Assistant, Content: answer}
 	if len(toolCalls) > 0 {
@@ -83,8 +76,7 @@ func (s *ChatService) SaveAssistantMessage(convID, answer string, toolCalls []sc
 	return s.persister.SaveMessages(context.Background(), convID, []*schema.Message{msg})
 }
 
-// SaveMessages persists a user-assistant message pair. Uses context.Background() internally
-// so that the write is not cancelled if the HTTP request context is already done.
+// SaveMessages 写一对用户+助手消息。内部用 background context 防 SSE 流结束后被取消。
 func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer string, toolCalls []schema.ToolCall) error {
 	// Use background context for the actual ES write to avoid cancellation issues
 	// (SSE stream may have ended, cancelling the HTTP request context)
@@ -94,8 +86,7 @@ func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer
 	})
 }
 
-// Agent invokes the tool-calling agent graph and persists the assistant message.
-// User message must be saved by the handler before calling this.
+// Agent 跑 Agent 图（ReAct 循环），结果自动写 ES。
 func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string) (*schema.Message, error) {
 	result, err := s.agentGraph.Invoke(ctx, msg)
 	if err != nil {
@@ -108,7 +99,7 @@ func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID str
 	return result, nil
 }
 
-// AgentStream returns a stream reader for the agent graph.
+// AgentStream 返回 Agent 图流。
 func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.agentGraph.Stream(ctx, msg)
 	if err != nil {

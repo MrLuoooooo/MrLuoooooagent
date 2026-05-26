@@ -8,14 +8,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// LoggingCallback logs component lifecycle events.
-// It implements callbacks.Handler via callbacks.NewHandlerBuilder.
+// LoggingCallback 监听每个 Eino 组件的开始/结束/错误，统一打日志。
+// 通过 callbacks.AppendGlobalHandlers 全局注册。
 type LoggingCallback struct {
 	logger *zap.Logger
 }
 
-// NewLoggingCallback creates a LoggingCallback.
-// It should be registered via callbacks.AppendGlobalHandlers at startup.
+// NewLoggingCallback 建一个全局日志回调，启动时注册。
 func NewLoggingCallback(logger *zap.Logger) callbacks.Handler {
 	return callbacks.NewHandlerBuilder().
 		OnStartFn(func(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
@@ -53,7 +52,7 @@ type ctxKey string
 
 const ctxKeyStartTime ctxKey = "start_time"
 
-// summarizeOutput returns a short text summary of component output for logging.
+// summarizeOutput 把组件输出截短到 200 字，方便日志查看。
 func summarizeOutput(output any) string {
 	if output == nil {
 		return ""

@@ -39,7 +39,7 @@ type DocumentService struct {
 	logger         *zap.Logger
 }
 
-// NewDocumentService creates a DocumentService.
+// NewDocumentService —
 func NewDocumentService(
 	ingestionChain compose.Runnable[[]byte, []string],
 	docStore DocStore,
@@ -102,7 +102,7 @@ func (s *DocumentService) DeleteDocument(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListDocuments returns all stored document metadata.
+// ListDocuments 列全部文档。
 func (s *DocumentService) ListDocuments(ctx context.Context) ([]DocMeta, error) {
 	if s.docStore != nil {
 		return s.docStore.List(ctx)

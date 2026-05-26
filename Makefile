@@ -1,7 +1,7 @@
 .PHONY: build test run clean ollama \
         build-docker up logs down restart health push
 
-# ── Local development ────────────────────────────────────
+#Local development
 
 build:
 	mkdir -p bin
@@ -16,7 +16,7 @@ run: build
 clean:
 	rm -rf bin/
 
-# ── Ollama 一键本地运行 ────────────────────────────────
+#Ollama 一键本地运行
 
 # 一键启动 ES + 应用（Ollama 自动检测）
 ollama:
@@ -32,7 +32,7 @@ ollama:
 	@echo "=== ES 就绪，启动应用 ==="
 	go run ./cmd/server
 
-# ── Docker ───────────────────────────────────────────────
+#Docker
 
 build-docker:
 	docker compose build
@@ -52,7 +52,7 @@ health:
 	curl -s http://localhost:8080/health | python3 -m json.tool 2>/dev/null || curl -s http://localhost:8080/health
 
 IMAGE ?= yourusername/goagent-pro
-# Example: make push IMAGE=registry.example.com/yourname/goagent-pro
+#Example: make push IMAGE=registry.example.com/yourname/goagent-pro
 push: build-docker
 	docker tag goagentpro-app:latest $(IMAGE):latest
 	docker push $(IMAGE):latest

@@ -15,13 +15,13 @@ type RAGTool struct {
 	ragFn func(ctx context.Context, query string) (string, error)
 }
 
-// NewRAGTool creates a RAG tool backed by the given query function.
-// The function should execute the full RAG chain (retrieve → generate) and return the answer.
+// NewRAGTool 用传入的查询函数做知识库检索工具。
+// ragFn 应执行完整 RAG 链（检索 → 生成）并返回答案。
 func NewRAGTool(ragFn func(ctx context.Context, query string) (string, error)) *RAGTool {
 	return &RAGTool{ragFn: ragFn}
 }
 
-// Info implements tool.BaseTool.
+// Info —
 func (r *RAGTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "retrieve_knowledge",
@@ -36,7 +36,7 @@ func (r *RAGTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
-// InvokableRun implements tool.InvokableTool.
+// InvokableRun —
 func (r *RAGTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	var args struct {
 		Query string `json:"query"`

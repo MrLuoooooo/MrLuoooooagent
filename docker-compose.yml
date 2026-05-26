@@ -19,7 +19,6 @@ services:
       resources:
         limits:
           memory: 1g
-
   app:
     build:
       context: .
@@ -47,7 +46,6 @@ services:
       resources:
         limits:
           memory: 512m
-
   web:
     image: nginx:latest
     container_name: goagent-web
@@ -64,7 +62,6 @@ services:
       resources:
         limits:
           memory: 128m
-
 volumes:
   es_data:
   app_logs:

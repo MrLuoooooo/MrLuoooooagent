@@ -20,7 +20,7 @@ type datetimeParams struct {
 	Timezone string `json:"timezone"` // IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
 }
 
-// Info implements tool.BaseTool.
+// Info —
 func (dt *DateTimeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "get_current_datetime",
@@ -40,8 +40,7 @@ func (dt *DateTimeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
-// InvokableRun implements tool.InvokableTool.
-// It parses the JSON-encoded arguments and returns a formatted datetime string.
+// InvokableRun 解析 JSON 参数，返回格式化时间。
 func (dt *DateTimeTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
 	var params datetimeParams
 	if err := json.Unmarshal([]byte(argumentsInJSON), &params); err != nil {

@@ -9,18 +9,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// ApprovalHandler handles approval list and decision endpoints.
+// ApprovalHandler 管审批列表和决策。
 type ApprovalHandler struct {
 	store  *service.ApprovalStore
 	logger *zap.Logger
 }
 
-// NewApprovalHandler creates an ApprovalHandler.
+// NewApprovalHandler —
 func NewApprovalHandler(store *service.ApprovalStore, logger *zap.Logger) *ApprovalHandler {
 	return &ApprovalHandler{store: store, logger: logger}
 }
 
-// ListPending returns all pending approvals.
+// ListPending 列出待审批项。
 func (h *ApprovalHandler) ListPending(c *gin.Context) {
 	items := h.store.Pending()
 	if items == nil {
@@ -29,7 +29,7 @@ func (h *ApprovalHandler) ListPending(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(items))
 }
 
-// ListAll returns all approvals.
+// ListAll 列出全部审批项。
 func (h *ApprovalHandler) ListAll(c *gin.Context) {
 	items := h.store.All()
 	if items == nil {
@@ -38,7 +38,7 @@ func (h *ApprovalHandler) ListAll(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(items))
 }
 
-// Decide handles accept/reject on a pending approval.
+// Decide 接受或拒绝某个审批项。
 func (h *ApprovalHandler) Decide(c *gin.Context) {
 	id := c.Param("approval_id")
 	var req struct {

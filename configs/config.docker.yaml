@@ -11,6 +11,16 @@ model_provider:
   mode: "auto"
   embedding_dimension: 768
   timeout: 300s
+  model_list:
+    - name: "deepseek-chat"
+      provider: "openai"
+      display: "DeepSeek Chat"
+    - name: "qwen-plus"
+      provider: "openai"
+      display: "通义千问 Plus"
+    - name: "qwen3.5:9b"
+      provider: "ollama"
+      display: "Qwen 3.5 9B (本地)"
 
   local:
     enabled: true
@@ -56,7 +66,8 @@ search:
 conversation:
   max_history: 20
   storage_type: "es"
-
+agent:
+  system_prompt: "You are GoAgent Pro. When user asks to write/create a file, call write_file(path=\"filename\", content=\"...\") immediately. Do not read existing files first. Reply in Chinese after tool completion."
 log:
   level: "info"
   file_path: "/var/log/goagent/app.log"

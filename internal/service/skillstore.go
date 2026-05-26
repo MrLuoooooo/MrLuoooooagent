@@ -22,7 +22,7 @@ type SkillStore struct {
 	path   string
 }
 
-// NewSkillStore loads skills from disk, or creates an empty store.
+// NewSkillStore 从磁盘加载技能，没有就建空的。
 func NewSkillStore() *SkillStore {
 	dir := "data"
 	os.MkdirAll(dir, 0755)
@@ -59,7 +59,7 @@ func (s *SkillStore) Remove(name string) error {
 	return fmt.Errorf("skill %q not found", name)
 }
 
-// Enabled returns all enabled skills' prompts concatenated.
+// Enabled 拼出所有启用的技能提示词。
 func (s *SkillStore) Enabled() []SkillEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -72,7 +72,7 @@ func (s *SkillStore) Enabled() []SkillEntry {
 	return result
 }
 
-// All returns all skills.
+// All 列全部技能。
 func (s *SkillStore) All() []SkillEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

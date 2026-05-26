@@ -18,7 +18,7 @@ type ModelStore struct {
 	path   string
 }
 
-// NewModelStore loads custom models from disk, or creates an empty store.
+// NewModelStore 从磁盘加载自定义模型，没有就建空的。
 func NewModelStore() *ModelStore {
 	dir := "data"
 	os.MkdirAll(dir, 0755)
@@ -54,7 +54,7 @@ func (s *ModelStore) Remove(name string) error {
 	return fmt.Errorf("model %q not found", name)
 }
 
-// All returns all custom models.
+// All 列全部自定义模型。
 func (s *ModelStore) All() []config.ModelEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

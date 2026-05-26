@@ -70,6 +70,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.bash_timeout", 30)
 	v.SetDefault("server.cors_origins", []string{"*"})
 	v.SetDefault("server.rate_limit_rps", 10.0)
+	v.SetDefault("server.workspace_dir", "")
 	v.SetDefault("server.allowed_dirs", []string{})
 
 	v.SetDefault("auth.api_key", "")

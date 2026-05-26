@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ConversationStore is the interface that ESConversationStore implements.
+// ConversationStore 是 ESConversationStore 的持久化接口
 type ConversationStore interface {
 	Create(ctx context.Context, id string, title string) error
 	List(ctx context.Context) ([]store.ConversationMeta, error)
@@ -23,7 +23,7 @@ type ConversationService struct {
 	logger *zap.Logger
 }
 
-// NewConversationService creates a ConversationService.
+// NewConversationService —
 func NewConversationService(s ConversationStore, logger *zap.Logger) *ConversationService {
 	return &ConversationService{store: s, logger: logger}
 }
@@ -37,7 +37,7 @@ type ConversationMeta struct {
 	UpdatedAt    string
 }
 
-// Create creates a new conversation and returns its ID.
+// Create 建新会话，返回 ID。
 func (s *ConversationService) Create(ctx context.Context, title string) (string, error) {
 	id := store.NewConversationID()
 	if err := s.store.Create(ctx, id, title); err != nil {
@@ -46,7 +46,7 @@ func (s *ConversationService) Create(ctx context.Context, title string) (string,
 	return id, nil
 }
 
-// List returns all conversations, newest first.
+// List 列全部会话，最新在前。
 func (s *ConversationService) List(ctx context.Context) ([]ConversationMeta, error) {
 	metas, err := s.store.List(ctx)
 	if err != nil {

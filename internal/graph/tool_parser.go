@@ -49,9 +49,12 @@ func parseXMLToolCalls(content string) []schema.ToolCall {
 		if err := json.Unmarshal([]byte(m[1]), &tc); err != nil {
 			continue
 		}
-		argsJSON, _ := json.Marshal(tc.Arguments)
+		argsJSON, err := json.Marshal(tc.Arguments)
+		if err != nil {
+			continue
+		}
 		tcs = append(tcs, schema.ToolCall{
-			ID:   "prompt_tc_" + string(rune('0'+i)),
+			ID:   fmt.Sprintf("prompt_tc_%d", i),
 			Type: "function",
 			Function: schema.FunctionCall{
 				Name:      tc.Name,
@@ -87,9 +90,12 @@ func parseJSONToolCalls(content string) []schema.ToolCall {
 		if toolName == "" {
 			continue
 		}
-		argsJSON, _ := json.Marshal(parsed.Arguments)
+		argsJSON, err := json.Marshal(parsed.Arguments)
+		if err != nil {
+			continue
+		}
 		tcs = append(tcs, schema.ToolCall{
-			ID:   "prompt_tc_" + string(rune('0'+i)),
+			ID:   fmt.Sprintf("prompt_tc_%d", i),
 			Type: "function",
 			Function: schema.FunctionCall{
 				Name:      toolName,

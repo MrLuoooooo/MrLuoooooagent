@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-// NewLogger creates a new zap.Logger with lumberjack for log rotation.
+// NewLogger 建一个带日志滚动切割的 zap.Logger。
 func NewLogger(cfg *Config) *zap.Logger {
 	// Configure lumberjack for log rotation
 	lumberjackLogger := &lumberjack.Logger{

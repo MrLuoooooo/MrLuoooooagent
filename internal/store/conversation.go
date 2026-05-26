@@ -58,7 +58,7 @@ type ESConversationStore struct {
 	logger    *zap.Logger
 }
 
-// NewESConversationStore creates an ES-backed conversation store.
+// NewESConversationStore 连 ES 存会话，自动建索引。
 func NewESConversationStore(client *elasticsearch.Client, convIndex, msgIndex string, logger *zap.Logger) (*ESConversationStore, error) {
 	s := &ESConversationStore{
 		client:    client,
@@ -106,7 +106,7 @@ func (s *ESConversationStore) ensureIndices(ctx context.Context) error {
 	return nil
 }
 
-// Save appends messages to a conversation and updates metadata.
+// Save 追加消息到会话，更新元数据。
 func (s *ESConversationStore) Save(ctx context.Context, conversationID string, msgs []*schema.Message) error {
 	if len(msgs) == 0 {
 		return nil
@@ -242,7 +242,7 @@ func (s *ESConversationStore) Create(ctx context.Context, id string, title strin
 	return nil
 }
 
-// List returns metadata for all conversations, newest first.
+// List 列全部会话元数据，最新在前。
 func (s *ESConversationStore) List(ctx context.Context) ([]ConversationMeta, error) {
 	query := `{"query":{"match_all":{}},"sort":[{"updated_at":{"order":"desc"}}],"size":1000}`
 	res, err := s.client.Search(
@@ -281,7 +281,7 @@ func (s *ESConversationStore) List(ctx context.Context) ([]ConversationMeta, err
 	return result, nil
 }
 
-// Load returns messages for a conversation, ordered by time ascending.
+// Load 取会话消息，按时间升序。
 func (s *ESConversationStore) Load(ctx context.Context, conversationID string) ([]*schema.Message, error) {
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -342,7 +342,7 @@ func (s *ESConversationStore) Load(ctx context.Context, conversationID string) (
 	return result, nil
 }
 
-// Delete removes a conversation and all its messages.
+// Delete 删会话及其全部消息。
 func (s *ESConversationStore) Delete(ctx context.Context, conversationID string) error {
 	delRes, err := s.client.Delete(s.convIndex, conversationID,
 		s.client.Delete.WithRefresh("wait_for"),
@@ -370,7 +370,7 @@ func (s *ESConversationStore) Delete(ctx context.Context, conversationID string)
 
 var convCounter int64
 
-// NewConversationID returns a unique conversation ID.
+// NewConversationID 生成唯一会话 ID。
 func NewConversationID() string {
 	convCounter++
 	return fmt.Sprintf("conv_%d_%d", time.Now().UnixNano(), convCounter)

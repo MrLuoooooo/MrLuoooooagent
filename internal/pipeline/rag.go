@@ -11,11 +11,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// NewRAGChain builds a Runnable[string, *schema.Message] that:
-//   1. Retrieves relevant documents via the retriever
-//   2. Builds a context string from the documents and constructs prompt variables
-//   3. Formats the ChatTemplate with those variables
-//   4. Calls the ChatModel to generate a response
+// NewRAGChain — 检索相关文档、拼接上下文、模板填充、调用模型生成回答
 func NewRAGChain(
 	rd retriever.Retriever,
 	tmpl prompt.ChatTemplate,
@@ -53,7 +49,7 @@ func NewRAGChain(
 	return chain.Compile(context.Background())
 }
 
-// NewDefaultRAGTemplate returns a ChatTemplate with a standard RAG prompt.
+// NewDefaultRAGTemplate — 标准 RAG prompt 模板
 func NewDefaultRAGTemplate() prompt.ChatTemplate {
 	return prompt.FromMessages(schema.FString,
 		schema.SystemMessage(

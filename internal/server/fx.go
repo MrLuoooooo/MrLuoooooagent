@@ -257,8 +257,8 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(&tool.CreateDirectoryTool{})
 	tool.Register(&tool.SearchFilesTool{})
 	tool.Register(&tool.GetFileInfoTool{})
-	tool.Register(tool.NewBashTool())
-	tool.Register(tool.NewWriteAndExecuteTool())
+	tool.Register(tool.NewBashTool(cfg.Server.AllowedDirs))
+	tool.Register(tool.NewWriteAndExecuteTool(cfg.Server.AllowedDirs))
 	tool.Register(&tool.DateTimeTool{})
 	tool.Register(tool.NewWebSearchTool(cfg.Search.BaseURL, cfg.Search.APIKey, cfg.Search.Engine, cfg.Search.Format, cfg.Search.Enabled))
 	tool.Register(tool.NewRAGTool(func(ctx context.Context, query string) (string, error) {
@@ -286,7 +286,7 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err != nil { return nil, err }
 	infos, err := tool.ToolInfos(context.Background())
 	if err != nil { return nil, err }
-	if err := graph.MustBindTools(cm, infos); err != nil {
+	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
 	return graph.NewAgentGraph(cm, tn, infos, skills, cfg.Agent.SystemPrompt)
@@ -345,8 +345,8 @@ func ProvideSkillHandler(store *service.SkillStore, logger *zap.Logger) *handler
 	return handler.NewSkillHandler(store, logger)
 }
 
-func ProvideWorkspaceHandler(logger *zap.Logger) *handler.WorkspaceHandler {
-	return handler.NewWorkspaceHandler(logger)
+func ProvideWorkspaceHandler(logger *zap.Logger, cfg *config.Config) *handler.WorkspaceHandler {
+	return handler.NewWorkspaceHandler(logger, cfg.Server)
 }
 
 func ProvideConvHandler(svc *service.ConversationService) *handler.ConversationHandler {
@@ -354,7 +354,7 @@ func ProvideConvHandler(svc *service.ConversationService) *handler.ConversationH
 }
 
 func ProvideDocHandler(svc *service.DocumentService, cfg *config.Config, logger *zap.Logger) *handler.DocumentHandler {
-	return handler.NewDocumentHandler(svc, cfg, logger)
+	return handler.NewDocumentHandler(svc, logger)
 }
 
 func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
