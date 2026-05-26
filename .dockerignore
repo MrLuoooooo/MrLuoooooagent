@@ -1,6 +1,4 @@
-.claude/
 .git/
-.workbuddy/
 logs/
 *.exe
 *.log
