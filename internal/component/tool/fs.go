@@ -47,29 +47,43 @@ func resolvePath(input string) (string, error) {
 	}
 
 	// Normalize Windows paths for Linux container.
-	if len(input) >= 2 && input[1] == ':' && (input[2] == '\\' || input[2] == '/') {
+	if len(input) > 2 && input[1] == ':' && (input[2] == '\\' || input[2] == '/') {
 		rest := strings.TrimLeft(input[3:], `/\`)
 		if rest == "" {
 			return "", fmt.Errorf("禁止写入驱动器根目录: %s", input)
 		}
 		input = "/" + strings.ToUpper(string(input[0])) + "/" + rest
+	} else if len(input) == 2 && input[1] == ':' {
+		// Bare drive letter like "D:" — treat as the drive root, use workspace root instead.
+		return "", fmt.Errorf("禁止写入驱动器根目录: %s", input)
 	}
-	// Normalize all backslashes to forward slashes (container environment).
+	// Normalize all backslashes to forward slashes for consistent comparison.
 	input = strings.ReplaceAll(input, `\`, `/`)
 	input = filepath.Clean(input)
+	// filepath.Clean on Windows converts / back to \, so re-normalize.
+	input = strings.ReplaceAll(input, `\`, `/`)
+
+	// Convert container-style /X/... paths to Windows absolute X:\... for correct IsAbs and Join.
+	if len(input) >= 3 && input[0] == '/' && input[2] == '/' {
+		drive := input[1]
+		if (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z') {
+			rest := strings.TrimLeft(input[3:], "/")
+			input = strings.ToUpper(string(drive)) + ":\\" + strings.ReplaceAll(rest, "/", "\\")
+		}
+	}
 
 	if filepath.IsAbs(input) {
 		lower := strings.ToLower(input)
 		root := strings.ToLower(GetWorkspaceRoot())
 		if root != "" && strings.HasPrefix(lower, root) {
-			return input, nil
+			return toWinPath(input), nil
 		}
 		for _, bad := range []string{`c:\windows`, `c:\program files`, `c:\program files (x86)`} {
 			if strings.HasPrefix(lower, bad) {
 				return "", fmt.Errorf("禁止访问系统目录: %s", input)
 			}
 		}
-		return input, nil
+		return toWinPath(input), nil
 	}
 	// Relative path.
 	root := GetWorkspaceRoot()
@@ -80,9 +94,9 @@ func resolvePath(input string) (string, error) {
 	base := filepath.Base(root)
 	// Only guard exact workspace dir name match.
 	if clean == base {
-		return root, nil
+		return toWinPath(root), nil
 	}
-	return filepath.Join(root, input), nil
+	return toWinPath(strings.ReplaceAll(filepath.Join(root, input), `\`, `/`)), nil
 }
 
 // isSensitiveFilePath checks whether a path targets protected files.

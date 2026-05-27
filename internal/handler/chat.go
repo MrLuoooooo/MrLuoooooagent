@@ -13,6 +13,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"go.uber.org/zap"
+	"unicode/utf8"
 )
 
 // ChatHandler 处理 /api/v1/chat，分发到 RAG 流式/非流式或 Agent 三种路径。
@@ -38,6 +39,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	convID := req.ConversationID
+	var isNew bool
 	if convID == "" {
 		id, err := h.convSvc.Create(ctx, "新会话")
 		if err != nil {
@@ -46,6 +48,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 			return
 		}
 		convID = id
+		isNew = true
 	}
 
 	var history []*schema.Message
@@ -58,6 +61,14 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 
 	originalQuestion := req.Question
+
+	// 新会话：用用户第一条消息截取作为标题
+	if isNew && originalQuestion != "" {
+		title := convTitle(originalQuestion)
+		if err := h.convSvc.Rename(ctx, convID, title); err != nil {
+			h.logger.Warn("rename conversation", zap.String("conv_id", convID), zap.Error(err))
+		}
+	}
 
 	if len(history) > 0 {
 		req.Question = prependHistory(req.Question, history)
@@ -313,4 +324,18 @@ var toolCodeRe = regexp.MustCompile(`(?s)<tool_code>.*?</tool_code>`)
 
 func stripToolCode(s string) string {
 	return toolCodeRe.ReplaceAllString(s, "")
+}
+
+// convTitle 从用户第一句对话截取标题，最多 30 个字符（按 UTF-8 rune 计数）。
+// 截断后加 "..." 确保不超过 33 个字符。
+func convTitle(q string) string {
+	const maxRunes = 30
+	if !utf8.ValidString(q) {
+		return q
+	}
+	runes := []rune(q)
+	if len(runes) <= maxRunes {
+		return q
+	}
+	return string(runes[:maxRunes]) + "..."
 }

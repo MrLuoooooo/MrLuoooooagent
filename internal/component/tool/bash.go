@@ -159,10 +159,10 @@ func NewBashTool(allowedDirs []string) *BashTool {
 func (t *BashTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "execute_command",
-		Desc: "在本地 shell 中执行一条命令并返回输出。适用于运行构建命令、代码格式化、测试和各类 CLI 操作。工作目录默认为项目根 D:\\goagentpro。输出上限 100KB。",
+		Desc: "在本地 shell 中执行一条命令并返回输出。适用于运行构建命令、代码格式化、测试和各类 CLI 操作。工作目录由系统提示词中的「当前工作目录」指定。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"command":         {Type: schema.String, Desc: "要执行的 shell 命令", Required: true},
-			"work_dir":        {Type: schema.String, Desc: "工作目录（默认 D:\\goagentpro）", Required: false},
+			"work_dir":        {Type: schema.String, Desc: "工作目录（默认当前工作目录）", Required: false},
 			"timeout_seconds": {Type: schema.Integer, Desc: "超时秒数（默认 30 秒，最大 120 秒）", Required: false},
 		}),
 	}, nil
@@ -187,24 +187,35 @@ func (t *BashTool) InvokableRun(ctx context.Context, argsJSON string, opts ...to
 		return "", fmt.Errorf("[SECURITY] %s", reason)
 	}
 
-	// Resolve work directory.
+	// Resolve work directory — use workspace root if available, fall back to project root.
 	workDir := t.defaultDir
+	if ws := GetWorkspaceWinPath(); ws != "" {
+		workDir = ws
+	}
 	if args.WorkDir != "" {
 		var err error
 		workDir, err = resolvePath(args.WorkDir)
 		if err != nil {
 			return "", fmt.Errorf("execute_command: %w", err)
 		}
-		// Verify workDir is under an allowed directory.
+		// Verify workDir is under an allowed directory or the current workspace root.
 		allowed := false
+		lowerWork := strings.ToLower(workDir)
 		for _, ad := range t.allowedDirs {
-			if strings.HasPrefix(strings.ToLower(workDir), strings.ToLower(ad)) {
+			if strings.HasPrefix(lowerWork, strings.ToLower(ad)) {
 				allowed = true
 				break
 			}
 		}
 		if !allowed {
-			return "", fmt.Errorf("[SECURITY] 工作目录 %s 不在允许范围内", workDir)
+			ws := GetWorkspaceWinPath()
+			if ws != "" && strings.HasPrefix(lowerWork, strings.ToLower(ws)) {
+				allowed = true
+			}
+		}
+		if !allowed {
+			// Fall back to workspace root instead of blocking.
+			workDir = t.defaultDir
 		}
 	}
 

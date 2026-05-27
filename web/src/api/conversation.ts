@@ -1,7 +1,6 @@
 import { apiFetch } from './client'
 import type { ConversationItem, MessageItem } from '../types/conversation'
 
-/** 创建会话 */
 export function createConversation(title: string): Promise<ConversationItem> {
   return apiFetch('/conversations', {
     method: 'POST',
@@ -10,7 +9,6 @@ export function createConversation(title: string): Promise<ConversationItem> {
   })
 }
 
-/** 获取会话列表 */
 export function listConversations(): Promise<{
   total: number
   conversations: ConversationItem[]
@@ -18,7 +16,6 @@ export function listConversations(): Promise<{
   return apiFetch('/conversations')
 }
 
-/** 获取会话消息 */
 export function getConversationMessages(id: string): Promise<{
   conversation_id: string
   total: number
@@ -27,9 +24,12 @@ export function getConversationMessages(id: string): Promise<{
   return apiFetch(`/conversations/${id}/messages`)
 }
 
-/** 删除会话 */
 export function deleteConversation(id: string): Promise<{ conversation_id: string }> {
   return apiFetch(`/conversations/${id}`, {
     method: 'DELETE',
   })
+}
+
+export function deleteAllConversations(): Promise<void> {
+  return apiFetch('/conversations', { method: 'DELETE' })
 }

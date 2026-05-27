@@ -63,6 +63,7 @@ func NewRouter(
 		v1.DELETE("/documents/:document_id", docH.DeleteDocument)
 		v1.GET("/documents", docH.ListDocuments)
 		v1.DELETE("/conversations/:conversation_id", convH.DeleteConversation)
+		v1.DELETE("/conversations", convH.DeleteAllConversations)
 		v1.POST("/batch", batchH.HandleBatch)
 		v1.GET("/approvals/pending", approvalH.ListPending)
 		v1.GET("/approvals", approvalH.ListAll)

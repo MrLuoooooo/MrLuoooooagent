@@ -8,40 +8,26 @@ bin/
 *.test
 *.test.exe
 *.stackdump
-
-# Test
 *.out
 coverage.*
 *.coverprofile
 profile.cov
-
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Secrets
 .env
 .env.local
 .env.production
-
-# Logs
 logs/*.log
-
-# Build
 web/dist/
 web/node_modules/
 tmp/
 *.tmp
 *.tmp.*
-
-# Go
 go.work
 go.work.sum
 vendor/

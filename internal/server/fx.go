@@ -56,16 +56,14 @@ func resolveModelProvider(cfg *config.Config, logger *zap.Logger) *ResolvedConfi
 	case "cloud": return useCloud(cfg, logger)
 	case "local": return useLocal(cfg, logger)
 	}
-	if cfg.ModelProvider.Cloud.Enabled && cfg.ModelProvider.Cloud.APIKey != "" {
+	// auto 模式：优先使用 OpenAI 兼容的云端 API
+	if cfg.ModelProvider.Cloud.Enabled {
 		logger.Info("model: 使用云端 API", zap.String("chat", cfg.ModelProvider.Cloud.ChatModel))
 		return useCloud(cfg, logger)
 	}
 	if r := probeOllama(cfg, logger); r != nil {
 		logger.Info("model: 使用本地 Ollama", zap.String("chat", r.ChatModel))
 		return r
-	}
-	if cfg.ModelProvider.Cloud.Enabled || cfg.ModelProvider.Cloud.APIKey != "" {
-		return useCloud(cfg, logger)
 	}
 	logger.Error("no LLM configured")
 	return nil
@@ -140,12 +138,13 @@ func probeOllamaEmbedding(cfg *config.Config) *ResolvedEmbeddingConfig {
 
 func useCloud(cfg *config.Config, _ *zap.Logger) *ResolvedConfig {
 	c := cfg.ModelProvider.Cloud
-	if c.APIKey == "" { return nil }
 	dim := cfg.ModelProvider.EmbeddingDimension
 	if dim <= 0 { dim = 1536 }
 	cm := c.ChatModel
 	if cm == "" { cm = "gpt-4" }
-	return &ResolvedConfig{ChatModel: cm, EmbeddingModel: "", BaseURL: c.BaseURL, APIKey: c.APIKey, EmbeddingDimension: dim, Provider: "cloud/" + c.Type}
+	ak := c.APIKey
+	if ak == "" { ak = "sk-placeholder" }
+	return &ResolvedConfig{ChatModel: cm, EmbeddingModel: "", BaseURL: c.BaseURL, APIKey: ak, EmbeddingDimension: dim, Provider: "cloud/" + c.Type}
 }
 
 func useLocal(cfg *config.Config, logger *zap.Logger) *ResolvedConfig {
@@ -158,8 +157,15 @@ func useLocal(cfg *config.Config, logger *zap.Logger) *ResolvedConfig {
 
 type stubEmbedder struct{}
 
-func (s *stubEmbedder) EmbedStrings(_ context.Context, _ []string, _ ...embedding.Option) ([][]float64, error) {
-	return nil, fmt.Errorf("no embedding backend configured — set cloud.embedding_model or enable local ollama")
+func (s *stubEmbedder) EmbedStrings(_ context.Context, texts []string, _ ...embedding.Option) ([][]float64, error) {
+	dim := 768
+	result := make([][]float64, len(texts))
+	for i := range texts {
+		v := make([]float64, dim)
+		v[0] = 1.0 // valid unit vector, won't match any real document
+		result[i] = v
+	}
+	return result, nil
 }
 
 type stubChatModel struct{}

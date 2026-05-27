@@ -41,7 +41,7 @@ type modelItem struct {
 func (h *ModelHandler) ListAvailable(c *gin.Context) {
 	current := h.manager.CurrentName()
 	seen := make(map[string]bool)
-	var items []modelItem
+	items := make([]modelItem, 0)
 
 	for _, m := range h.cfg.ModelProvider.ModelList {
 		items = append(items, h.toItem(m, false, current))

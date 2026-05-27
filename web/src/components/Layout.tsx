@@ -1,23 +1,22 @@
 import { Outlet, useSearchParams } from 'react-router-dom'
 import Sidebar from './Sidebar'
-import { Menu } from 'lucide-react'
+import TopNav from './TopNav'
+import { PanelLeftClose, PanelLeft } from 'lucide-react'
 import { useState, useCallback, useEffect } from 'react'
 import { useConversations } from '../hooks/useConversations'
 
 export default function Layout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchParams, setSearchParams] = useSearchParams()
   const convId = searchParams.get('id')
   const convs = useConversations()
 
-  // 页面加载时同步 URL 中的会话 ID 到状态
   useEffect(() => {
     if (convId && convId !== convs.currentId) {
       convs.setCurrentId(convId)
     }
   }, [convId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 刷新页面时，自动选中最近一个会话
   useEffect(() => {
     if (!convs.loading && convs.conversations.length > 0 && !convId) {
       const newest = convs.conversations[0].conversation_id
@@ -42,21 +41,26 @@ export default function Layout() {
   }, [convs, setSearchParams])
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* 移动端遮罩 */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-20 bg-black/30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* 侧边栏 */}
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-72 -translate-x-full transition-transform md:relative md:translate-x-0 ${
-          sidebarOpen ? 'translate-x-0' : ''
+        className={`hidden md:flex flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 transition-all duration-200 ${
+          sidebarOpen ? 'w-72' : 'w-0 min-w-0 overflow-hidden border-r-0'
         }`}
       >
+        <div className="flex-shrink-0 flex items-center justify-between px-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
+          {sidebarOpen && (
+            <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+              会话历史
+            </span>
+          )}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors ml-auto"
+            title="收起侧边栏"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
         <Sidebar
           conversations={convs.conversations}
           currentId={convId}
@@ -64,24 +68,24 @@ export default function Layout() {
           onNew={handleNew}
           onDelete={convs.delete}
           loading={convs.loading}
-          onClose={() => setSidebarOpen(false)}
+          onClose={() => {}}
         />
       </aside>
 
-      {/* 主区域 */}
-      <main className="flex flex-1 flex-col min-h-0 min-w-0">
-        {/* 顶栏（移动端） */}
-        <header className="flex items-center justify-between border-b border-gray-200 px-4 py-2 dark:border-gray-700 md:hidden">
+      <main className="flex flex-1 flex-col min-h-0 min-w-0 bg-white dark:bg-gray-950">
+        <TopNav />
+
+        {!sidebarOpen && (
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800"
-            aria-label="打开菜单"
+            className="hidden md:flex fixed left-3 top-14 z-10 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 shadow-sm p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:shadow-md transition-all"
+            title="展开侧边栏"
           >
-            <Menu size={20} />
+            <PanelLeft size={16} />
           </button>
-          <span className="font-semibold">GoAgent Pro</span>
-          <div className="w-8" />
-        </header>
+        )}
+
+        <div className="hidden md:block h-[1px] bg-gradient-to-r from-blue-100 via-purple-100 to-transparent dark:from-blue-900/20 dark:via-purple-900/20" />
 
         <Outlet context={{ convId, setSearchParams, ...convs }} />
       </main>

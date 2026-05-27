@@ -1,4 +1,3 @@
-/** 聊天请求体（匹配后端 model/chat.go ChatRequest） */
 export interface ChatRequest {
   conversation_id: string
   question: string
@@ -6,7 +5,6 @@ export interface ChatRequest {
   agent?: boolean
 }
 
-/** SSE 流式事件 */
 export interface StreamEvent {
   type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id'
   content?: string
@@ -15,7 +13,6 @@ export interface StreamEvent {
   tool_args?: string
 }
 
-/** 对话消息 */
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -24,7 +21,6 @@ export interface Message {
   createdAt: string
 }
 
-/** 工具调用记录 */
 export interface ToolCall {
   name: string
   args: string
@@ -33,5 +29,4 @@ export interface ToolCall {
   output?: string
 }
 
-/** 聊天状态 */
 export type ChatStatus = 'idle' | 'streaming' | 'tool_calling' | 'error'

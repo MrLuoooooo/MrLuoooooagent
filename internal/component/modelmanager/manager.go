@@ -5,23 +5,23 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaimodel"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
 
-// ModelManager 包装 ChatModel，支持运行时切换模型。
-// 通过 atomic.Value 实现。从 config model_list 和 custom ModelStore 中查找模型。
+// ModelManager包装ChatModel支持运行时切换模型。
+// 通过atomic.Value实现，从configmodel_list和customModelStore中查找模型。
 type ModelManager struct {
-	current   atomic.Value // stores model.ChatModel
-	cfg       *config.Config
+	current     atomic.Value // stores model.ChatModel
+	cfg         *config.Config
 	customStore *service.ModelStore
-	logger    *zap.Logger
-	tools     []*schema.ToolInfo
-	name      atomic.Value
+	logger      *zap.Logger
+	tools       []*schema.ToolInfo
+	name        atomic.Value
 }
 
 func NewModelManager(initial model.ChatModel, cfg *config.Config, customStore *service.ModelStore, resolvedModel, resolvedBaseURL string, logger *zap.Logger) *ModelManager {

@@ -101,3 +101,12 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 		ConversationID: convID,
 	}))
 }
+
+// DeleteAllConversations 清空全部会话及消息。
+func (h *ConversationHandler) DeleteAllConversations(c *gin.Context) {
+	if err := h.svc.DeleteAll(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.OK(map[string]string{"status": "ok"}))
+}

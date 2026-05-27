@@ -19,7 +19,7 @@ model_provider:
     api_key: ""
     base_url: "https://api.deepseek.com/v1"
     chat_model: "deepseek-chat"
-    embedding_model: "text-embedding-3-small"
+    embedding_model: ""
 vector_store:
   type: "elasticsearch"
   elasticsearch:

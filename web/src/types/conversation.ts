@@ -1,4 +1,3 @@
-/** 会话项 */
 export interface ConversationItem {
   conversation_id: string
   title: string

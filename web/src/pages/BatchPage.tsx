@@ -80,7 +80,6 @@ export default function BatchPage() {
               setSummary(evt.result || '')
               return next
             case 'done':
-              // no state change needed
               return next
             default:
               return prev
@@ -101,7 +100,6 @@ export default function BatchPage() {
     )
   }, [])
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])

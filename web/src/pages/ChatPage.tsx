@@ -18,19 +18,14 @@ export default function ChatPage() {
   const chat = useChatStream()
   const userSentRef = useRef(false)
 
-  // 加载历史消息 — 每次 convId 变化时触发
   useEffect(() => {
     if (!convId) return
-
-    // 不取消正在进行的流式回复，让其继续在后台完成
-    // 切换回来后自动从 ES 重新加载已完成的内容
 
     userSentRef.current = false
     let cancelled = false
 
     loadMessages(convId).then((msgs) => {
       if (cancelled) return
-      // 用户已经手动发了消息，不要覆盖消息状态
       if (userSentRef.current) return
       chat.clear()
       if (msgs.length > 0) {
@@ -85,19 +80,23 @@ export default function ChatPage() {
 
           {/* 已选中会话但无消息（历史为空） */}
           {!messagesLoading && chat.messages.length === 0 && convId && (
-            <div className="flex flex-col items-center py-16 text-gray-400">
-              <MessageSquare size={48} className="mb-4 opacity-40" />
-              <p className="text-lg">开始与新 AI 助手对话</p>
-              <p className="text-sm mt-1">在下方输入消息开始对话</p>
+            <div className="flex flex-col items-center py-20 text-gray-400 dark:text-gray-500">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/40 dark:to-purple-950/40 flex items-center justify-center mb-5 border border-blue-100 dark:border-blue-900/50 shadow-sm">
+                <MessageSquare size={28} className="text-blue-400 dark:text-blue-500" />
+              </div>
+              <p className="text-lg font-medium text-gray-500 dark:text-gray-400">开始与新 AI 助手对话</p>
+              <p className="text-sm mt-1.5 text-gray-400 dark:text-gray-500">在下方输入消息开始对话</p>
             </div>
           )}
 
           {/* 未选中会话，欢迎页 */}
           {!messagesLoading && chat.messages.length === 0 && !convId && (
-            <div className="flex flex-col items-center py-16 text-gray-400">
-              <MessageSquare size={48} className="mb-4 opacity-40" />
-              <p className="text-lg">开始一个新对话</p>
-              <p className="text-sm mt-1">在下方输入消息开始与 AI 助手对话</p>
+            <div className="flex flex-col items-center py-20 text-gray-400 dark:text-gray-500">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/40 dark:to-purple-950/40 flex items-center justify-center mb-5 border border-blue-100 dark:border-blue-900/50 shadow-sm">
+                <MessageSquare size={28} className="text-blue-400 dark:text-blue-500" />
+              </div>
+              <p className="text-lg font-medium text-gray-500 dark:text-gray-400">开始一个新对话</p>
+              <p className="text-sm mt-1.5 text-gray-400 dark:text-gray-500">在下方输入消息开始与 AI 助手对话</p>
             </div>
           )}
 

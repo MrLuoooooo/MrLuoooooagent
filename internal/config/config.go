@@ -5,11 +5,15 @@ import (
 	"log"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
 
 // Load reads configuration from file and environment variables.
 func Load() (*Config, error) {
+	// Load .env into environment, silently skip if not found.
+	_ = godotenv.Load()
+
 	v := viper.New()
 	setDefaults(v)
 

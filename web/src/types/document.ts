@@ -1,4 +1,3 @@
-/** 文档项 */
 export interface DocumentItem {
   document_id: string
   title: string

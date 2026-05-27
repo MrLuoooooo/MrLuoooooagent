@@ -2,11 +2,6 @@ import type { StreamEvent } from '../types/chat'
 import { rawFetch } from './client'
 import { parseSSEStream } from '../lib/sse-parser'
 
-/**
- * 发送聊天请求并 SSE 流式读取响应。
- * onEvent 回调每次收到 StreamEvent 时触发。
- * 返回 AbortController 用于取消。
- */
 export function chatStream(
   conversationId: string,
   message: string,
@@ -47,9 +42,7 @@ export function chatStream(
         try {
           const evt = JSON.parse(line) as StreamEvent
           onEvent(evt)
-        } catch {
-          // 跳过解析失败的事件
-        }
+        } catch {}
       })
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {

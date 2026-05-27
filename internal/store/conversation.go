@@ -242,6 +242,26 @@ func (s *ESConversationStore) Create(ctx context.Context, id string, title strin
 	return nil
 }
 
+// UpdateTitle updates a conversation's title and updated_at timestamp.
+func (s *ESConversationStore) UpdateTitle(ctx context.Context, id, title string) error {
+	update := map[string]interface{}{
+		"doc": map[string]interface{}{
+			"title":      title,
+			"updated_at": time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+	updateBody, _ := json.Marshal(update)
+	upRes, err := s.client.Update(s.convIndex, id, strings.NewReader(string(updateBody)))
+	if err != nil {
+		return fmt.Errorf("update conversation title: %w", err)
+	}
+	defer upRes.Body.Close()
+	if upRes.IsError() && upRes.StatusCode != 404 {
+		return fmt.Errorf("update conversation title error: %s", upRes.String())
+	}
+	return nil
+}
+
 // List 列全部会话元数据，最新在前。
 func (s *ESConversationStore) List(ctx context.Context) ([]ConversationMeta, error) {
 	query := `{"query":{"match_all":{}},"sort":[{"updated_at":{"order":"desc"}}],"size":1000}`
@@ -364,6 +384,26 @@ func (s *ESConversationStore) Delete(ctx context.Context, conversationID string)
 	defer dbqRes.Body.Close()
 	if dbqRes.IsError() {
 		return fmt.Errorf("delete messages error: %s", dbqRes.String())
+	}
+	return nil
+}
+
+// DeleteAll 清空全部会话及其消息。
+func (s *ESConversationStore) DeleteAll(ctx context.Context) error {
+	matchAll := `{"query":{"match_all":{}}}`
+	for _, idx := range []string{s.convIndex, s.msgIndex} {
+		res, err := s.client.DeleteByQuery(
+			[]string{idx},
+			strings.NewReader(matchAll),
+			s.client.DeleteByQuery.WithRefresh(true),
+		)
+		if err != nil {
+			return fmt.Errorf("delete all from %s: %w", idx, err)
+		}
+		defer res.Body.Close()
+		if res.IsError() {
+			return fmt.Errorf("delete all from %s error: %s", idx, res.String())
+		}
 	}
 	return nil
 }

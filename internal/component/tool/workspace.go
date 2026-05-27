@@ -46,8 +46,13 @@ func toWinPath(p string) string {
 	if len(p) >= 2 && p[1] == ':' {
 		return p
 	}
-	if strings.HasPrefix(p, "/D/") {
-		return "D:\\" + strings.TrimPrefix(p, "/D/")
+	// Handle /D/... or \D\... format (container or Windows-style with drive letter)
+	if len(p) >= 3 && (p[0] == '/' || p[0] == '\\') && (p[2] == '/' || p[2] == '\\') {
+		drive := p[1]
+		if (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z') {
+			rest := strings.TrimLeft(p[3:], "/\\")
+			return strings.ToUpper(string(drive)) + ":\\" + strings.ReplaceAll(rest, "/", "\\")
+		}
 	}
 	return p
 }

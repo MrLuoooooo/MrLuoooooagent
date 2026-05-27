@@ -8,21 +8,16 @@ interface ChatBubbleProps {
   isStreaming?: boolean
 }
 
-/**
- * 消息气泡组件。
- *
- * 布局：flex 行，avatar 和 bubble 并排，gap-1.5 紧贴。
- *   用户消息 → ml-auto 推右，[bubble] [avatar]
- *   助手消息 → 左对齐，[avatar] [bubble]
- * 当 showAvatar=false 时用一个同宽的空 div 占位保持对齐。
- */
 export default function ChatBubble({ message, showAvatar, isStreaming }: ChatBubbleProps) {
   const isUser = message.role === 'user'
 
   const avatarNode = (
     <div
-      className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white"
-      style={{ backgroundColor: isUser ? '#3b82f6' : '#9ca3af' }}
+      className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white shadow-sm ${
+        isUser
+          ? 'bg-gradient-to-br from-blue-500 to-blue-600'
+          : 'bg-gradient-to-br from-gray-400 to-gray-500 dark:from-gray-500 dark:to-gray-600'
+      }`}
     >
       {isUser ? <User size={14} /> : <Bot size={14} />}
     </div>
@@ -31,18 +26,18 @@ export default function ChatBubble({ message, showAvatar, isStreaming }: ChatBub
   const spacerNode = <div className="flex-shrink-0 w-7 h-7" />
 
   const bubbleContent = (
-    <div>
+    <div className="min-w-0">
       <div
-        className={`inline-block px-3.5 py-2 text-sm leading-relaxed ${
+        className={`inline-block px-4 py-2.5 text-sm leading-relaxed ${
           isUser
-            ? 'bg-blue-500 text-white rounded-2xl rounded-br-md'
-            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md'
+            ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-br-md shadow-sm shadow-blue-200/50 dark:shadow-blue-900/30'
+            : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md border border-gray-200/50 dark:border-gray-700/50'
         }`}
       >
         <span className="whitespace-pre-wrap break-words">
           {message.content}
           {isStreaming && (
-            <span className="inline-block w-[2px] h-4 ml-0.5 bg-current animate-blink" />
+            <span className="inline-block w-[2px] h-4 ml-0.5 bg-blue-500 dark:bg-blue-400 animate-blink rounded-sm" />
           )}
         </span>
       </div>
@@ -58,7 +53,7 @@ export default function ChatBubble({ message, showAvatar, isStreaming }: ChatBub
   )
 
   return (
-    <div className={`flex items-end gap-1.5 ${isUser ? 'ml-auto w-fit' : ''}`}>
+    <div className={`flex items-end gap-2 ${isUser ? 'ml-auto w-fit max-w-[85%]' : 'max-w-[85%]'}`}>
       {isUser ? (
         <>
           {bubbleContent}

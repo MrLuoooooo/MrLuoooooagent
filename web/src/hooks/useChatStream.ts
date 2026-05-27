@@ -31,14 +31,13 @@ export function useChatStream(): UseChatStreamReturn {
   const statusRef = useRef<ChatStatus>('idle')
   const streamIdRef = useRef(0)
 
-  // Keep statusRef in sync
   useEffect(() => { statusRef.current = status }, [status])
 
   const currentAssistantRef = useRef<Message | null>(null)
   const onNewConversationRef = useRef<((id: string) => void) | null>(null)
 
   const setInitialMessages = useCallback((msgs: Message[]) => {
-    streamIdRef.current = 0 // 重置流 ID，后续旧流事件将被忽略
+    streamIdRef.current = 0
     setMessages(msgs)
     setStatus('idle')
     setError(null)
@@ -56,7 +55,6 @@ export function useChatStream(): UseChatStreamReturn {
     setToolCalls([])
     currentAssistantRef.current = null
 
-    // Add user message
     const userMsg: Message = {
       id: nextId(),
       role: 'user',
@@ -65,7 +63,6 @@ export function useChatStream(): UseChatStreamReturn {
     }
     setMessages((prev) => [...prev, userMsg])
 
-    // Add empty assistant message placeholder
     const assistantMsg: Message = {
       id: nextId(),
       role: 'assistant',
@@ -80,7 +77,6 @@ export function useChatStream(): UseChatStreamReturn {
       text,
       agent ?? false,
       (evt: StreamEvent) => {
-        // 忽略非当前流的事件（用户可能已切换到新会话）
         if (streamIdRef.current !== sid) return
 
         switch (evt.type) {
@@ -144,9 +140,7 @@ export function useChatStream(): UseChatStreamReturn {
         setError(err.message)
         setStatus('error')
       },
-      () => {
-        // onFinally
-      },
+      () => {},
     )
   }, [])
 

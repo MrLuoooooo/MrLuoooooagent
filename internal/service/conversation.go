@@ -15,6 +15,8 @@ type ConversationStore interface {
 	Load(ctx context.Context, conversationID string) ([]*schema.Message, error)
 	Save(ctx context.Context, conversationID string, msgs []*schema.Message) error
 	Delete(ctx context.Context, conversationID string) error
+	UpdateTitle(ctx context.Context, id, title string) error
+	DeleteAll(ctx context.Context) error
 }
 
 // ConversationService wraps a ConversationStore.
@@ -78,4 +80,14 @@ func (s *ConversationService) SaveMessages(ctx context.Context, id string, msgs 
 // Delete deletes a conversation and its messages.
 func (s *ConversationService) Delete(ctx context.Context, id string) error {
 	return s.store.Delete(ctx, id)
+}
+
+// Rename updates a conversation's title.
+func (s *ConversationService) Rename(ctx context.Context, id, title string) error {
+	return s.store.UpdateTitle(ctx, id, title)
+}
+
+// DeleteAll 清空全部会话及消息。
+func (s *ConversationService) DeleteAll(ctx context.Context) error {
+	return s.store.DeleteAll(ctx)
 }

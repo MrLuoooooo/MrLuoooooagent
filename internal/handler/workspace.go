@@ -93,7 +93,9 @@ func (h *WorkspaceHandler) SetCurrent(c *gin.Context) {
 	}
 
 	raw := req.Path
-	// Ensure directory exists in container (create parent dirs as needed).
+	// Normalize path separators and clean
+	raw = filepath.Clean(raw)
+	// Ensure directory exists.
 	checkPath := raw
 	if len(raw) >= 2 && raw[1] == ':' {
 		checkPath = "/" + strings.ToUpper(string(raw[0])) + "/" + strings.TrimLeft(raw[3:], `/\`)
