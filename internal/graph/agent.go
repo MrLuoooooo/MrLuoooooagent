@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/schema"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/schema"
 )
 
 func NewAgentGraph(
@@ -41,14 +41,16 @@ func NewAgentGraph(
 					prompt += sb.String()
 				}
 			}
-			// Inject current workspace.
+			// Inject current workspace before tools section so the model sees it first.
 			win := tool.GetWorkspaceWinPath()
 			if win == "" {
 				win = tool.GetWorkspaceRoot()
 			}
 			if win != "" {
 				summary := tool.ReadWorkspaceSummary()
-				prompt += "\n## 当前工作目录: " + win + "\n目录内容：" + summary
+				wsBlock := "\n## 当前工作目录\n路径: " + win + "\n目录内容:\n" + summary +
+					"\n用户询问工作目录时直接回答以上信息，不要调用任何工具。"
+				prompt = wsBlock + "\n" + prompt
 			}
 			return []*schema.Message{
 				{Role: schema.System, Content: prompt},

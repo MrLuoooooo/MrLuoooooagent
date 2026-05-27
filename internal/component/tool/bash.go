@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -395,11 +396,7 @@ func makeCmd(ctx context.Context, command, workDir string, stdout, stderr *bytes
 }
 
 // isWindows reports whether the current runtime is Windows.
-var isWindows = checkWindows()
-
-func checkWindows() bool {
-	return len(`\`) == 1 // backslash is a valid OS path separator only on Windows
-}
+var isWindows = runtime.GOOS == "windows"
 
 // execExitError is satisfied by *exec.ExitError for extracting exit codes.
 type execExitError interface {

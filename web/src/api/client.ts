@@ -2,7 +2,7 @@ import type { APIEnvelope } from '../types/envelope'
 
 const TOKEN_KEY = 'goagent_token'
 const TOKEN = import.meta.env.VITE_API_TOKEN || localStorage.getItem(TOKEN_KEY) || 'dev-token'
-const BASE = import.meta.env.DEV ? 'http://127.0.0.1:8080/api/v1' : '/api/v1'
+const BASE = import.meta.env.DEV ? 'http://127.0.0.1:8081/api/v1' : '/api/v1'
 
 export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token)

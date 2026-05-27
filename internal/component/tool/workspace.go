@@ -13,14 +13,24 @@ var (
 
 // SetWorkspaceRoot sets the agent's working directory root.
 // Accepts Windows paths (D:\foo) or container paths (/D/foo).
+// In Docker/WSL, converts D:\foo → /mnt/d/foo (via HOST_MNT_PREFIX env).
 func SetWorkspaceRoot(path string) {
 	wsRootMu.Lock()
 	defer wsRootMu.Unlock()
-	// Convert Windows path to container path.
-	if len(path) >= 2 && path[1] == ':' {
-		path = "/" + strings.ToUpper(string(path[0])) + "/" + strings.TrimLeft(path[3:], `/\`)
+	wsRoot = hostToContainer(path)
+}
+
+// hostToContainer converts a host path to a container-readable path.
+func hostToContainer(p string) string {
+	if len(p) >= 2 && p[1] == ':' {
+		drive := strings.ToLower(string(p[0]))
+		rest := strings.TrimLeft(p[3:], `/\`)
+		if mnt := os.Getenv("HOST_MNT_PREFIX"); mnt != "" {
+			return mnt + "/" + drive + "/" + rest
+		}
+		return "/" + strings.ToUpper(string(drive)) + "/" + rest
 	}
-	wsRoot = path
+	return p
 }
 
 // GetWorkspaceRoot returns the raw workspace root path.
@@ -46,7 +56,14 @@ func toWinPath(p string) string {
 	if len(p) >= 2 && p[1] == ':' {
 		return p
 	}
-	// Handle /D/... or \D\... format (container or Windows-style with drive letter)
+	// Docker/WSL format: /mnt/d/... → D:\...
+	if mnt := os.Getenv("HOST_MNT_PREFIX"); mnt != "" && strings.HasPrefix(p, mnt+"/") {
+		rest := p[len(mnt)+1:]
+		if len(rest) >= 2 && rest[1] == '/' {
+			return strings.ToUpper(string(rest[0])) + ":\\" + strings.ReplaceAll(rest[2:], "/", "\\")
+		}
+	}
+	// Legacy format: /D/... → D:\...
 	if len(p) >= 3 && (p[0] == '/' || p[0] == '\\') && (p[2] == '/' || p[2] == '\\') {
 		drive := p[1]
 		if (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z') {
@@ -66,9 +83,13 @@ func ReadWorkspaceSummary() string {
 	if root == "" {
 		return ""
 	}
+	// Try container path first (e.g. /mnt/d/... in Docker).
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return ""
+		entries, err = os.ReadDir(toWinPath(root))
+		if err != nil {
+			return "(空目录)"
+		}
 	}
 	var b strings.Builder
 	count := 0
@@ -83,6 +104,9 @@ func ReadWorkspaceSummary() string {
 			b.WriteString("  📄 " + e.Name() + "\n")
 		}
 		count++
+	}
+	if count == 0 {
+		return "(空目录)"
 	}
 	return b.String()
 }

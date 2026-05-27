@@ -23,7 +23,6 @@ export default function ChatInput({
   const [agentMode, setAgentMode] = useState(false)
   const [wsInput, setWsInput] = useState('')
   const [wsLoading, setWsLoading] = useState(false)
-  const [wsError, setWsError] = useState('')
   const [wsSuccess, setWsSuccess] = useState(false)
   const [models, setModels] = useState<ModelItem[]>([])
   const [modelsLoaded, setModelsLoaded] = useState(false)
@@ -73,7 +72,6 @@ export default function ChatInput({
   const handleSetWorkspace = () => {
     const trimmed = wsInput.trim()
     if (!trimmed) return
-    setWsError('')
     setWsSuccess(false)
     setWsLoading(true)
     setWorkspaceAPI(trimmed).then((res) => {
@@ -81,8 +79,7 @@ export default function ChatInput({
       setWsLoading(false)
       setWsSuccess(true)
       setTimeout(() => setWsSuccess(false), 2000)
-    }).catch((err) => {
-      setWsError(err.message || '设置失败')
+    }).catch(() => {
       setWsLoading(false)
     })
   }
@@ -182,9 +179,6 @@ export default function ChatInput({
           </div>
         </div>
 
-        {wsError && (
-          <div className="text-xs text-red-500 mt-1 ml-5">{wsError}</div>
-        )}
 
         {models.filter(m => m.is_custom).length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">

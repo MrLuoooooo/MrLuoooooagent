@@ -21,18 +21,29 @@ type WorkspaceHandler struct {
 }
 
 func toWin(p string) string {
-	if strings.HasPrefix(p, "/D/") {
-		return "D:\\" + strings.TrimPrefix(p, "/D/")
-	}
 	if len(p) >= 2 && p[1] == ':' {
 		return p
+	}
+	if mnt := os.Getenv("HOST_MNT_PREFIX"); mnt != "" && strings.HasPrefix(p, mnt+"/") {
+		rest := p[len(mnt)+1:]
+		if len(rest) >= 2 && rest[1] == '/' {
+			return strings.ToUpper(string(rest[0])) + ":\\" + strings.ReplaceAll(rest[2:], "/", "\\")
+		}
+	}
+	if strings.HasPrefix(p, "/D/") {
+		return "D:\\" + strings.TrimPrefix(p, "/D/")
 	}
 	return p
 }
 
 func toContainer(p string) string {
 	if len(p) >= 2 && p[1] == ':' {
-		return "/" + strings.ToUpper(string(p[0])) + "/" + strings.TrimLeft(p[3:], `/\`)
+		drive := strings.ToLower(string(p[0]))
+		rest := strings.TrimLeft(p[3:], `/\`)
+		if mnt := os.Getenv("HOST_MNT_PREFIX"); mnt != "" {
+			return mnt + "/" + drive + "/" + rest
+		}
+		return "/" + strings.ToUpper(string(drive)) + "/" + rest
 	}
 	return p
 }

@@ -29,13 +29,17 @@ services:
     environment:
       - CONFIG_PATH=/app/configs
       - GOAGENT_PROJECT_ROOT=/app
+      - HOST_MNT_PREFIX=/mnt
+    env_file:
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - /mnt:/mnt:rw
+      - app_logs:/var/log/goagent
     depends_on:
       elasticsearch:
         condition: service_healthy
-    volumes:
-      - app_logs:/var/log/goagent
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:8080/health | grep -q ok"]
       interval: 15s
