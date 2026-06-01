@@ -38,6 +38,12 @@ type modelItem struct {
 }
 
 // ListAvailable 列出配置里和用户自定义的全部模型。
+// @Summary      列出可用模型
+// @Description  获取所有可用模型列表。包含配置中的预置模型和用户自定义模型，标记当前活跃模型。
+// @Tags         模型
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope{data=[]modelItem}
+// @Router       /models [get]
 func (h *ModelHandler) ListAvailable(c *gin.Context) {
 	current := h.manager.CurrentName()
 	seen := make(map[string]bool)
@@ -72,6 +78,16 @@ func (h *ModelHandler) toItem(m config.ModelEntry, isCustom bool, current string
 }
 
 // SwitchModel 切模型。
+// @Summary      切换模型
+// @Description  运行时切换 LLM 模型，无需重启服务。
+// @Tags         模型
+// @Accept       json
+// @Produce      json
+// @Param        request body object{model=string} true "模型名称"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Failure      500 {object} model.APIEnvelope
+// @Router       /models/switch [post]
 func (h *ModelHandler) SwitchModel(c *gin.Context) {
 	var req struct {
 		Model string `json:"model" binding:"required"`
@@ -89,6 +105,15 @@ func (h *ModelHandler) SwitchModel(c *gin.Context) {
 }
 
 // AddCustomModel 加一个自定义模型。
+// @Summary      添加自定义模型
+// @Description  添加一个自定义 LLM 模型到可用模型列表。
+// @Tags         模型
+// @Accept       json
+// @Produce      json
+// @Param        request body config.ModelEntry true "自定义模型配置"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /models [post]
 func (h *ModelHandler) AddCustomModel(c *gin.Context) {
 	var entry config.ModelEntry
 	if err := c.ShouldBindJSON(&entry); err != nil {
@@ -108,6 +133,14 @@ func (h *ModelHandler) AddCustomModel(c *gin.Context) {
 }
 
 // RemoveCustomModel 删一个自定义模型。
+// @Summary      删除自定义模型
+// @Description  从可用模型列表中删除一个自定义模型。
+// @Tags         模型
+// @Produce      json
+// @Param        name path string true "模型名称"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /models/{name} [delete]
 func (h *ModelHandler) RemoveCustomModel(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Remove(name); err != nil {

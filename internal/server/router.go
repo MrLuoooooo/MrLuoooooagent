@@ -16,6 +16,20 @@ import (
 	"go.uber.org/zap"
 )
 
+// @title           GoAgent Pro API
+// @version         4.1.2
+// @description     AI Agent 后端系统。让大模型安全操控本地开发环境——读写文件、执行命令、联网搜索、查询股票、检索知识库。
+// @termsOfService  https://github.com/MrLuoooooo/MrLuoooooagent
+
+// @contact.name   MrLuoooooo
+// @contact.url    https://github.com/MrLuoooooo/MrLuoooooagent
+
+// @license.name   MIT
+// @license.url    https://opensource.org/licenses/MIT
+
+// @host      localhost:8080
+// @BasePath  /api/v1
+
 // NewRouter 搭 Gin 引擎，挂所有路由和中间件。
 func NewRouter(
 	cfg *config.Config,

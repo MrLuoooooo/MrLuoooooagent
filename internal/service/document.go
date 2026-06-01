@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/compose"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/pipeline"
 	"go.uber.org/zap"
 )
 
@@ -60,7 +61,16 @@ func (s *DocumentService) Ingest(ctx context.Context, data []byte, filename stri
 	if len(data) == 0 {
 		return nil, fmt.Errorf("empty file")
 	}
-	ids, err := s.ingestionChain.Invoke(ctx, data)
+
+	// Extract text based on file format
+	text, err := pipeline.ExtractText(data, filename)
+	if err != nil {
+		s.logger.Warn("text extraction warning", zap.String("file", filename), zap.Error(err))
+		// If extraction fails, try to process raw data anyway
+		text = string(data)
+	}
+
+	ids, err := s.ingestionChain.Invoke(ctx, []byte(text))
 	if err != nil {
 		s.logger.Error("document ingestion failed", zap.Error(err))
 		return nil, err

@@ -199,6 +199,14 @@ func ProvideModelManager(resolved *ResolvedConfig, cfg *config.Config, customSto
 
 func ProvideChatModel(mm *modelmanager.ModelManager) model.ChatModel { return mm }
 
+func ProvideCheckpointStore(cfg *config.Config, logger *zap.Logger) (*store.CheckpointStore, error) {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	return store.NewCheckpointStoreWithLogger(dataDir, logger)
+}
+
 func ProvideESClient(cfg *config.Config) (*elasticsearch.Client, error) {
 	return elasticsearch.NewClient(elasticsearch.Config{
 		Addresses:     cfg.VectorStore.Elasticsearch.Addresses,
@@ -284,7 +292,7 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	return &ToolRegistry{}
 }
 
-func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, cfg *config.Config) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
+func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, cfg *config.Config, cpStore *store.CheckpointStore) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
 	allTools := tool.RegisteredTools()
 	einoTools := make([]eino_tool.BaseTool, len(allTools))
 	for i, t := range allTools { einoTools[i] = t }
@@ -295,7 +303,7 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
-	return graph.NewAgentGraph(cm, tn, infos, skills, cfg.Agent.SystemPrompt)
+	return graph.NewAgentGraph(cm, tn, infos, skills, cfg.Agent.SystemPrompt, cpStore)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
@@ -327,8 +335,8 @@ func ProvideConvService(esStore *store.ESConversationStore, logger *zap.Logger) 
 	return service.NewConversationService(esStore, logger)
 }
 
-func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *handler.ChatHandler {
-	return handler.NewChatHandler(svc, convSvc, logger)
+func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, cpStore *store.CheckpointStore, logger *zap.Logger) *handler.ChatHandler {
+	return handler.NewChatHandler(svc, convSvc, cpStore, logger)
 }
 
 func ProvideCronScheduler(cfg *config.Config, agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], logger *zap.Logger, approvals *service.ApprovalStore) *scheduler.CronScheduler {
@@ -355,12 +363,12 @@ func ProvideWorkspaceHandler(logger *zap.Logger, cfg *config.Config) *handler.Wo
 	return handler.NewWorkspaceHandler(logger, cfg.Server)
 }
 
-func ProvideConvHandler(svc *service.ConversationService) *handler.ConversationHandler {
-	return handler.NewConversationHandler(svc)
+func ProvideConvHandler(svc *service.ConversationService, logger *zap.Logger) *handler.ConversationHandler {
+	return handler.NewConversationHandler(svc, logger)
 }
 
 func ProvideDocHandler(svc *service.DocumentService, cfg *config.Config, logger *zap.Logger) *handler.DocumentHandler {
-	return handler.NewDocumentHandler(svc, logger)
+	return handler.NewDocumentHandler(svc, cfg, logger)
 }
 
 func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
@@ -398,6 +406,7 @@ var Module = fx.Module("goagent",
 		ProvideVectorDeleter,
 		ProvideRAGChain,
 		ProvideToolRegistry,
+		ProvideCheckpointStore,
 		ProvideAgentGraph,
 		ProvideBatchPipeline,
 		ProvideCronScheduler,

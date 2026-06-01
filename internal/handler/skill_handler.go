@@ -20,6 +20,12 @@ func NewSkillHandler(store *service.SkillStore, logger *zap.Logger) *SkillHandle
 }
 
 // List 列出所有技能。
+// @Summary      列出技能
+// @Description  获取所有用户自定义技能列表。技能会在 Agent 运行时注入到系统提示词中。
+// @Tags         技能
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope
+// @Router       /skills [get]
 func (h *SkillHandler) List(c *gin.Context) {
 	skills := h.store.All()
 	if skills == nil {
@@ -29,6 +35,16 @@ func (h *SkillHandler) List(c *gin.Context) {
 }
 
 // Upsert adds or updates a skill.
+// @Summary      添加/更新技能
+// @Description  添加或更新一个用户自定义技能。技能会在 Agent 执行时自动注入提示词。
+// @Tags         技能
+// @Accept       json
+// @Produce      json
+// @Param        request body service.SkillEntry true "技能配置（name + prompt）"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Failure      500 {object} model.APIEnvelope
+// @Router       /skills [post]
 func (h *SkillHandler) Upsert(c *gin.Context) {
 	var entry service.SkillEntry
 	if err := c.ShouldBindJSON(&entry); err != nil {
@@ -48,6 +64,14 @@ func (h *SkillHandler) Upsert(c *gin.Context) {
 }
 
 // Remove deletes a skill by name.
+// @Summary      删除技能
+// @Description  按名称删除一个用户自定义技能。
+// @Tags         技能
+// @Produce      json
+// @Param        name path string true "技能名称"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /skills/{name} [delete]
 func (h *SkillHandler) Remove(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Remove(name); err != nil {

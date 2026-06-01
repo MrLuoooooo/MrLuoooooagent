@@ -165,7 +165,7 @@ func (m *OpenAIChatModel) Stream(ctx context.Context, input []*schema.Message, o
 	streamReader, streamWriter := schema.Pipe[*schema.Message](64)
 
 	go func() {
-	// Stop scanning on context cancellation
+		// Stop scanning on context cancellation
 		scanDone := make(chan struct{})
 		go func() {
 			select {
@@ -292,8 +292,6 @@ type accumToolCall struct {
 	fnArgs string
 }
 
-// -- helpers -- //
-
 func convertMessages(messages []*schema.Message) []openAIMessage {
 	result := make([]openAIMessage, len(messages))
 	for i, msg := range messages {
@@ -348,8 +346,6 @@ func convertToMessage(om openAIMessage) *schema.Message {
 	return msg
 }
 
-// -- OpenAI API types -- //
-
 type openAIChatRequest struct {
 	Model       string          `json:"model"`
 	Messages    []openAIMessage `json:"messages"`
@@ -368,7 +364,7 @@ type openAIMessage struct {
 }
 
 type openAITool struct {
-	Type     string            `json:"type"`
+	Type     string             `json:"type"`
 	Function openAIToolFunction `json:"function"`
 }
 
@@ -379,8 +375,8 @@ type openAIToolFunction struct {
 }
 
 type openAIToolCall struct {
-	ID       string            `json:"id"`
-	Type     string            `json:"type"`
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
 	Function openAIFunctionCall `json:"function"`
 }
 

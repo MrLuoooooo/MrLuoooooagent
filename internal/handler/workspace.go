@@ -87,6 +87,12 @@ type FileNode struct {
 }
 
 // GetCurrent returns the workspace path in Windows format.
+// @Summary      获取工作目录
+// @Description  获取当前 Agent 工作目录路径。
+// @Tags         工作目录
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope
+// @Router       /workspace [get]
 func (h *WorkspaceHandler) GetCurrent(c *gin.Context) {
 	c.JSON(http.StatusOK, model.OK(gin.H{
 		"path": toWin(h.currentDir),
@@ -94,6 +100,15 @@ func (h *WorkspaceHandler) GetCurrent(c *gin.Context) {
 }
 
 // SetCurrent changes the workspace directory.
+// @Summary      设置工作目录
+// @Description  设置 Agent 的当前工作目录。路径不存在时会自动创建。
+// @Tags         工作目录
+// @Accept       json
+// @Produce      json
+// @Param        request body object{path=string} true "新的工作目录路径"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /workspace [post]
 func (h *WorkspaceHandler) SetCurrent(c *gin.Context) {
 	var req struct {
 		Path string `json:"path" binding:"required"`
@@ -119,6 +134,14 @@ func (h *WorkspaceHandler) SetCurrent(c *gin.Context) {
 }
 
 // ListTree 从当前工作目录开始返回目录树。
+// @Summary      返回目录树
+// @Description  以树形结构返回指定目录的内容（递归，默认深度 3 层）。
+// @Tags         工作目录
+// @Produce      json
+// @Param        path query string false "起始目录路径（默认当前工作目录）"
+// @Success      200 {object} model.APIEnvelope{data=handler.FileNode}
+// @Failure      500 {object} model.APIEnvelope
+// @Router       /workspace/tree [get]
 func (h *WorkspaceHandler) ListTree(c *gin.Context) {
 	depth := 3
 	root := toContainer(h.currentDir)
@@ -135,6 +158,12 @@ func (h *WorkspaceHandler) ListTree(c *gin.Context) {
 }
 
 // ListDrives 列出盘符（Windows）或根目录。
+// @Summary      列出磁盘驱动器
+// @Description  列出 Windows 系统上的所有可用磁盘驱动器。
+// @Tags         工作目录
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope
+// @Router       /workspace/drives [get]
 func (h *WorkspaceHandler) ListDrives(c *gin.Context) {
 	var items []gin.H
 	for _, drive := range "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
@@ -147,6 +176,14 @@ func (h *WorkspaceHandler) ListDrives(c *gin.Context) {
 }
 
 // ListDir lists immediate children of a directory.
+// @Summary      列出目录内容
+// @Description  列出指定目录下的文件和子目录（仅一层，不递归）。
+// @Tags         工作目录
+// @Produce      json
+// @Param        path query string false "目录路径（默认当前工作目录）"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /workspace/dir [get]
 func (h *WorkspaceHandler) ListDir(c *gin.Context) {
 	path := c.Query("path")
 	if path == "" {

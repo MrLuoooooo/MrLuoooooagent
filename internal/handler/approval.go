@@ -21,6 +21,12 @@ func NewApprovalHandler(store *service.ApprovalStore, logger *zap.Logger) *Appro
 }
 
 // ListPending 列出待审批项。
+// @Summary      列出待审批项
+// @Description  获取所有待审批的定时任务操作。
+// @Tags         审批
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope{data=[]model.ApprovalItem}
+// @Router       /approvals/pending [get]
 func (h *ApprovalHandler) ListPending(c *gin.Context) {
 	items := h.store.Pending()
 	if items == nil {
@@ -30,6 +36,12 @@ func (h *ApprovalHandler) ListPending(c *gin.Context) {
 }
 
 // ListAll 列出全部审批项。
+// @Summary      列出全部审批项
+// @Description  获取所有审批项（包含已处理和待处理的）。
+// @Tags         审批
+// @Produce      json
+// @Success      200 {object} model.APIEnvelope{data=[]model.ApprovalItem}
+// @Router       /approvals [get]
 func (h *ApprovalHandler) ListAll(c *gin.Context) {
 	items := h.store.All()
 	if items == nil {
@@ -39,6 +51,16 @@ func (h *ApprovalHandler) ListAll(c *gin.Context) {
 }
 
 // Decide 接受或拒绝某个审批项。
+// @Summary      审批决策
+// @Description  接受或拒绝一个待审批的定时任务操作。
+// @Tags         审批
+// @Accept       json
+// @Produce      json
+// @Param        approval_id path string true "审批项 ID"
+// @Param        request body object{accept=bool} true "决策（accept=true 接受，false 拒绝）"
+// @Success      200 {object} model.APIEnvelope
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /approvals/{approval_id}/decide [post]
 func (h *ApprovalHandler) Decide(c *gin.Context) {
 	id := c.Param("approval_id")
 	var req struct {

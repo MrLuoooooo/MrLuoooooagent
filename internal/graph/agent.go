@@ -6,6 +6,7 @@ import (
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -17,6 +18,7 @@ func NewAgentGraph(
 	toolInfos []*schema.ToolInfo,
 	skills *service.SkillStore,
 	systemPrompt string,
+	cpStore *store.CheckpointStore,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
 
 	sysPrompt := systemPrompt
@@ -105,7 +107,13 @@ func NewAgentGraph(
 	graph.AddEdge("tools", "tool_as_user")
 	graph.AddEdge("tool_as_user", "chat_model")
 
-	return graph.Compile(context.Background(), compose.WithMaxRunSteps(200))
+	// 使用 Eino 内置的 checkpoint 机制
+	compileOpts := []compose.GraphCompileOption{compose.WithMaxRunSteps(200)}
+	if cpStore != nil {
+		compileOpts = append(compileOpts, compose.WithCheckPointStore(cpStore))
+	}
+
+	return graph.Compile(context.Background(), compileOpts...)
 }
 
 // prefixForContent detects write/create intent and guides tool usage.

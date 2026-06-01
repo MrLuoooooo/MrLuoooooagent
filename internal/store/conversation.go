@@ -146,10 +146,12 @@ func (s *ESConversationStore) Save(ctx context.Context, conversationID string, m
 		s.client.Bulk.WithRefresh("wait_for"),
 	)
 	if err != nil {
+		s.logger.Error("es bulk save messages", zap.String("conv_id", conversationID), zap.Error(err))
 		return fmt.Errorf("bulk index messages: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
+		s.logger.Error("es bulk save error", zap.String("conv_id", conversationID), zap.String("resp", res.String()))
 		return fmt.Errorf("bulk index error: %s", res.String())
 	}
 
@@ -233,10 +235,12 @@ func (s *ESConversationStore) Create(ctx context.Context, id string, title strin
 		s.client.Index.WithRefresh("wait_for"),
 	)
 	if err != nil {
+		s.logger.Error("es index conversation", zap.String("conv_id", id), zap.Error(err))
 		return fmt.Errorf("index conversation: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
+		s.logger.Error("es index conversation error", zap.String("conv_id", id), zap.String("resp", res.String()))
 		return fmt.Errorf("index conversation error: %s", res.String())
 	}
 	return nil
@@ -270,10 +274,12 @@ func (s *ESConversationStore) List(ctx context.Context) ([]ConversationMeta, err
 		s.client.Search.WithBody(strings.NewReader(query)),
 	)
 	if err != nil {
+		s.logger.Error("es search conversations", zap.Error(err))
 		return nil, fmt.Errorf("search conversations: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
+		s.logger.Error("es search conversations error", zap.String("resp", res.String()))
 		return nil, fmt.Errorf("search conversations error: %s", res.String())
 	}
 
@@ -320,10 +326,12 @@ func (s *ESConversationStore) Load(ctx context.Context, conversationID string) (
 		s.client.Search.WithBody(strings.NewReader(string(queryBody))),
 	)
 	if err != nil {
+		s.logger.Error("es search messages", zap.String("conv_id", conversationID), zap.Error(err))
 		return nil, fmt.Errorf("search messages: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
+		s.logger.Error("es search messages error", zap.String("conv_id", conversationID), zap.String("resp", res.String()))
 		return nil, fmt.Errorf("search messages error: %s", res.String())
 	}
 
@@ -368,6 +376,7 @@ func (s *ESConversationStore) Delete(ctx context.Context, conversationID string)
 		s.client.Delete.WithRefresh("wait_for"),
 	)
 	if err != nil {
+		s.logger.Error("es delete conversation", zap.String("conv_id", conversationID), zap.Error(err))
 		return fmt.Errorf("delete conversation: %w", err)
 	}
 	defer delRes.Body.Close()

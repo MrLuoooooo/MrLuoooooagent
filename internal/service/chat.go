@@ -87,8 +87,9 @@ func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer
 }
 
 // Agent 跑 Agent 图（ReAct 循环），结果自动写 ES。
-func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string) (*schema.Message, error) {
-	result, err := s.agentGraph.Invoke(ctx, msg)
+// opts 可传入 compose.WithCheckPointID 等 Eino 选项。
+func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string, opts ...compose.Option) (*schema.Message, error) {
+	result, err := s.agentGraph.Invoke(ctx, msg, opts...)
 	if err != nil {
 		s.logger.Error("agent graph invoke failed", zap.Error(err))
 		return nil, err
@@ -100,8 +101,9 @@ func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID str
 }
 
 // AgentStream 返回 Agent 图流。
-func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message) (*schema.StreamReader[*schema.Message], error) {
-	stream, err := s.agentGraph.Stream(ctx, msg)
+// opts 可传入 compose.WithCheckPointID 等 Eino 选项。
+func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message, opts ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
+	stream, err := s.agentGraph.Stream(ctx, msg, opts...)
 	if err != nil {
 		s.logger.Error("agent graph stream failed", zap.Error(err))
 		return nil, err

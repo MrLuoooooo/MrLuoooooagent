@@ -8,10 +8,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"go.uber.org/zap"
 	"unicode/utf8"
 )
@@ -20,15 +22,27 @@ import (
 type ChatHandler struct {
 	svc     *service.ChatService
 	convSvc *service.ConversationService
+	cpStore *store.CheckpointStore
 	logger  *zap.Logger
 }
 
 // NewChatHandler —
-func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *ChatHandler {
-	return &ChatHandler{svc: svc, convSvc: convSvc, logger: logger}
+func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, cpStore *store.CheckpointStore, logger *zap.Logger) *ChatHandler {
+	return &ChatHandler{svc: svc, convSvc: convSvc, cpStore: cpStore, logger: logger}
 }
 
 // Chat 入口：解析请求 → 自动建会话 → load 历史 → 按 stream/agent 分发。
+// @Summary      发送聊天消息
+// @Description  发送一条消息给 AI，支持普通 RAG 和 Agent 模式，支持流式和非流式返回。流式模式通过 SSE 推送 token/tool_call/tool_result 事件。
+// @Tags         聊天
+// @Accept       json
+// @Produce      json
+// @Param        request body model.ChatRequest true "聊天请求参数"
+// @Success      200 {object} model.APIEnvelope{data=model.ChatResponseData} "非流式响应"
+// @Success      200 "流式响应（SSE），由 Server-Sent Events 推送 token/tool_call/tool_result/done 事件"
+// @Failure      400 {object} model.APIEnvelope "请求参数错误"
+// @Failure      500 {object} model.APIEnvelope "服务器内部错误"
+// @Router       /chat [post]
 func (h *ChatHandler) Chat(c *gin.Context) {
 	var req model.ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -127,13 +141,17 @@ func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID
 }
 
 func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
+	ctx := c.Request.Context()
+	// 用 Eino 内置 checkpoint：传入会话 ID 自动管理断点保存和恢复
+	cpOpt := compose.WithCheckPointID(convID)
+
 	if req.Stream {
 		if err := h.svc.SaveUserMessage(convID, originalQuestion); err != nil {
 			h.logger.Error("save user message before agent stream", zap.String("conv_id", convID), zap.Error(err))
 		}
 
 		userMsg := &schema.Message{Role: schema.User, Content: req.Question}
-		stream, err := h.svc.AgentStream(c.Request.Context(), userMsg)
+		stream, err := h.svc.AgentStream(ctx, userMsg, cpOpt)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 			return
@@ -179,6 +197,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 				h.logger.Error("save agent assistant reply", zap.String("conv_id", convID), zap.Error(err))
 			}
 		}
+
+		// Agent 完成：清理 Eino 的 checkpoint
+		if h.cpStore != nil {
+			_ = h.cpStore.Delete(ctx, convID)
+		}
 		return
 	}
 
@@ -186,10 +209,15 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		h.logger.Error("save user message before agent", zap.String("conv_id", convID), zap.Error(err))
 	}
 	userMsg := &schema.Message{Role: schema.User, Content: req.Question}
-	msg, err := h.svc.Agent(c.Request.Context(), userMsg, convID)
+	msg, err := h.svc.Agent(ctx, userMsg, convID, cpOpt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
+	}
+
+	// Agent 完成：清理 Eino 的 checkpoint
+	if h.cpStore != nil {
+		_ = h.cpStore.Delete(ctx, convID)
 	}
 
 	c.JSON(http.StatusOK, model.OK(model.ChatResponseData{
@@ -324,6 +352,14 @@ var toolCodeRe = regexp.MustCompile(`(?s)<tool_code>.*?</tool_code>`)
 
 func stripToolCode(s string) string {
 	return toolCodeRe.ReplaceAllString(s, "")
+}
+
+func truncateStr(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 // convTitle 从用户第一句对话截取标题，最多 30 个字符（按 UTF-8 rune 计数）。

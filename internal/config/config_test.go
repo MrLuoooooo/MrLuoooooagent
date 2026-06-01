@@ -78,8 +78,8 @@ func TestSetDefaults(t *testing.T) {
 	}
 
 	dirs := v.GetStringSlice("server.allowed_dirs")
-	if len(dirs) < 1 {
-		t.Error("allowed_dirs should have at least 1 entry")
+	if len(dirs) != 0 {
+		t.Errorf("allowed_dirs default should be empty, got %d entries", len(dirs))
 	}
 }
 

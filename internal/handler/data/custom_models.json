@@ -1,0 +1,26 @@
+[
+  {
+    "name": "custom-1",
+    "provider": "custom",
+    "chat_model": "custom-model",
+    "api_key": "",
+    "base_url": "",
+    "embedding_model": ""
+  },
+  {
+    "name": "new-model-1780209110639828800",
+    "provider": "test",
+    "chat_model": "new-chat",
+    "api_key": "",
+    "base_url": "",
+    "embedding_model": ""
+  },
+  {
+    "name": "temp-model",
+    "provider": "test",
+    "chat_model": "temp",
+    "api_key": "",
+    "base_url": "",
+    "embedding_model": ""
+  }
+]

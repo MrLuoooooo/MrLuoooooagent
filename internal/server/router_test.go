@@ -35,7 +35,7 @@ func TestHealthEndpoint(t *testing.T) {
 	if !contains(body, expected) {
 		t.Errorf("health response missing %q: %s", expected, body)
 	}
-	if !contains(body, `"version":"1.0.0"`) {
+	if !contains(body, `"version":"4.1.2"`) {
 		t.Error("health response missing version")
 	}
 	// verify timestamp is RFC3339

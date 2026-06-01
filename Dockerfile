@@ -19,7 +19,7 @@ WORKDIR /app
 COPY --from=builder /build/goagent ./goagent
 COPY --from=builder /build/configs/config.docker.yaml ./configs/config.docker.yaml
 
-RUN mkdir -p /var/log/goagent
+RUN mkdir -p /var/log/goagent /app/data/checkpoints
 
 EXPOSE 8080
 

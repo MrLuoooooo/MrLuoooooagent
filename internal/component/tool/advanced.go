@@ -16,10 +16,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// ═══════════════════════════════════════════════════════════
-// Tool: web_fetch — fetch and extract text from a URL
-// ═══════════════════════════════════════════════════════════
-
 type WebFetchTool struct {
 	client  *http.Client
 	enabled bool
@@ -112,10 +108,6 @@ func stripHTML(s string) string {
 	parts := strings.Fields(out)
 	return strings.Join(parts, " ")
 }
-
-// ═══════════════════════════════════════════════════════════
-// Tool: calculator — safe math expression evaluator
-// ═══════════════════════════════════════════════════════════
 
 type CalculatorTool struct{}
 

@@ -102,17 +102,19 @@ func (s *ESDocumentStore) Save(ctx context.Context, doc DocumentMeta) error {
 		s.client.Index.WithRefresh("wait_for"),
 	)
 	if err != nil {
+		s.logger.Error("es index document", zap.String("doc_id", doc.ID), zap.Error(err))
 		return fmt.Errorf("index document: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
 		if res.StatusCode == 404 {
-			// Index was deleted — recreate and retry once.
 			if err := s.ensureIndex(ctx); err != nil {
+				s.logger.Error("es recreate doc index", zap.Error(err))
 				return fmt.Errorf("recreate doc index: %w", err)
 			}
 			return s.Save(ctx, doc)
 		}
+		s.logger.Error("es index document error", zap.String("doc_id", doc.ID), zap.String("resp", res.String()))
 		return fmt.Errorf("index document error: %s", res.String())
 	}
 	return nil
@@ -124,10 +126,12 @@ func (s *ESDocumentStore) Delete(ctx context.Context, id string) error {
 		s.client.Delete.WithRefresh("wait_for"),
 	)
 	if err != nil {
+		s.logger.Error("es delete document", zap.String("doc_id", id), zap.Error(err))
 		return fmt.Errorf("delete document: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() && res.StatusCode != 404 {
+		s.logger.Error("es delete document error", zap.String("doc_id", id), zap.String("resp", res.String()))
 		return fmt.Errorf("delete document error: %s", res.String())
 	}
 	return nil
@@ -142,16 +146,19 @@ func (s *ESDocumentStore) List(ctx context.Context) ([]DocumentMeta, error) {
 		s.client.Search.WithBody(strings.NewReader(query)),
 	)
 	if err != nil {
+		s.logger.Error("es search documents", zap.Error(err))
 		return nil, fmt.Errorf("search documents: %w", err)
 	}
 	defer res.Body.Close()
 	if res.IsError() {
 		if res.StatusCode == 404 {
 			if err := s.ensureIndex(ctx); err != nil {
+				s.logger.Error("es recreate doc index", zap.Error(err))
 				return nil, fmt.Errorf("recreate doc index: %w", err)
 			}
-			return nil, nil // empty list after recreation
+			return nil, nil
 		}
+		s.logger.Error("es search documents error", zap.String("resp", res.String()))
 		return nil, fmt.Errorf("search documents error: %s", res.String())
 	}
 

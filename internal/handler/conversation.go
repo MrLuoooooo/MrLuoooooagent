@@ -7,16 +7,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"go.uber.org/zap"
 )
 
 // ConversationHandler 管会话的增删查。
 type ConversationHandler struct {
-	svc *service.ConversationService
+	svc    *service.ConversationService
+	logger *zap.Logger
 }
 
 // NewConversationHandler —
-func NewConversationHandler(svc *service.ConversationService) *ConversationHandler {
-	return &ConversationHandler{svc: svc}
+func NewConversationHandler(svc *service.ConversationService, logger *zap.Logger) *ConversationHandler {
+	return &ConversationHandler{svc: svc, logger: logger}
 }
 
 // CreateConversation 建新会话。
@@ -27,6 +29,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	}
 	id, err := h.svc.Create(c.Request.Context(), req.Title)
 	if err != nil {
+		h.logger.Error("create conversation", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
@@ -41,6 +44,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 func (h *ConversationHandler) ListConversations(c *gin.Context) {
 	convs, err := h.svc.List(c.Request.Context())
 	if err != nil {
+		h.logger.Error("list conversations", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
@@ -64,6 +68,7 @@ func (h *ConversationHandler) GetMessages(c *gin.Context) {
 	convID := c.Param("conversation_id")
 	msgs, err := h.svc.LoadMessages(c.Request.Context(), convID)
 	if err != nil {
+		h.logger.Error("get messages", zap.String("conv_id", convID), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
@@ -94,6 +99,7 @@ func (h *ConversationHandler) GetMessages(c *gin.Context) {
 func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 	convID := c.Param("conversation_id")
 	if err := h.svc.Delete(c.Request.Context(), convID); err != nil {
+		h.logger.Error("delete conversation", zap.String("conv_id", convID), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}
@@ -105,6 +111,7 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 // DeleteAllConversations 清空全部会话及消息。
 func (h *ConversationHandler) DeleteAllConversations(c *gin.Context) {
 	if err := h.svc.DeleteAll(c.Request.Context()); err != nil {
+		h.logger.Error("delete all conversations", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
 	}

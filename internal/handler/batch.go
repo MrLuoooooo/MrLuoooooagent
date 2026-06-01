@@ -23,6 +23,15 @@ func NewBatchHandler(pipeline *pipeline.BatchPipeline, logger *zap.Logger) *Batc
 }
 
 // HandleBatch executes a batch of tasks and streams progress via SSE.
+// @Summary      批量执行任务
+// @Description  并行执行最多 10 个子任务，通过 SSE 流式推送进度。每个任务独立运行，结果汇总返回。
+// @Tags         批量任务
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        request body model.BatchRequest true "批量任务请求（最多 10 个任务）"
+// @Success      200 "SSE 流式推送 task_start/task_done/task_error/summary/done 事件"
+// @Failure      400 {object} model.APIEnvelope
+// @Router       /batch [post]
 func (h *BatchHandler) HandleBatch(c *gin.Context) {
 	var req model.BatchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

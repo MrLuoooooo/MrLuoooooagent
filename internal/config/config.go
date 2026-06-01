@@ -103,7 +103,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("vector_store.elasticsearch.doc_index_name", "goagent_documents")
 
 	v.SetDefault("document.max_file_size", 10485760)
-	v.SetDefault("document.allowed_types", []string{".pdf", ".txt", ".md"})
+	v.SetDefault("document.allowed_types", []string{".pdf", ".txt", ".md", ".docx", ".xlsx", ".pptx"})
 	v.SetDefault("document.chunk_size", 500)
 	v.SetDefault("document.chunk_overlap", 50)
 
