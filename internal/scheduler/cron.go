@@ -34,7 +34,7 @@ func NewCronScheduler(
 	approvals *service.ApprovalStore,
 ) *CronScheduler {
 	if approvals == nil {
-		approvals = service.NewApprovalStore()
+		approvals = service.NewApprovalStore("data")
 	}
 	cs := &CronScheduler{
 		cron:       cron.New(cron.WithLocation(time.Local)),

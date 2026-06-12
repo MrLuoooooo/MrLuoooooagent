@@ -2,55 +2,67 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
 
-// MessagePersister 是 ChatService 对持久化层的最小依赖。
-// 用接口而不是直接引用 ConversationService，方便测试 mock。
+// MessagePersister ChatService 对持久化层的最小依赖。
 type MessagePersister interface {
 	SaveMessages(ctx context.Context, convID string, msgs []*schema.Message) error
 }
 
-// ChatService 把 handler 和 Eino 图/链解耦，顺带管消息持久化。
+// ChatService 把 handler 和 Eino 图/链解耦，管消息持久化 + 记忆提取 + 置信度 + 幻觉检测。
 type ChatService struct {
-	ragChain   compose.Runnable[string, *schema.Message]
-	agentGraph compose.Runnable[*schema.Message, *schema.Message]
-	persister   MessagePersister
-	logger     *zap.Logger
+	ragChain      compose.Runnable[string, *schema.Message]
+	agentGraph    compose.Runnable[*schema.Message, *schema.Message]
+	persister     MessagePersister
+	memorySvc     *MemoryService
+	feedbackSvc   *FeedbackService
+	confidenceSvc *ConfidenceService
+	summaryCache  sync.Map // convID → summary string，异步摘要缓存
+	logger        *zap.Logger
 }
-
 
 // NewChatService —
 func NewChatService(
 	ragChain compose.Runnable[string, *schema.Message],
 	agentGraph compose.Runnable[*schema.Message, *schema.Message],
 	persister MessagePersister,
+	memorySvc *MemoryService,
+	feedbackSvc *FeedbackService,
+	confidenceSvc *ConfidenceService,
 	logger *zap.Logger,
 ) *ChatService {
-	return &ChatService{ragChain: ragChain, agentGraph: agentGraph, persister: persister, logger: logger}
+	return &ChatService{
+		ragChain:      ragChain,
+		agentGraph:    agentGraph,
+		persister:     persister,
+		memorySvc:     memorySvc,
+		feedbackSvc:   feedbackSvc,
+		confidenceSvc: confidenceSvc,
+		logger:        logger,
+	}
 }
 
 // Chat 走 RAG 链，回答完自动写 ES。
-// handler 调用前要自己 SaveUserMessage，保证原始问题先落库。
 func (s *ChatService) Chat(ctx context.Context, question string, convID string) (*schema.Message, error) {
 	msg, err := s.ragChain.Invoke(ctx, question)
 	if err != nil {
 		s.logger.Error("rag chain invoke failed", zap.Error(err))
 		return nil, err
 	}
-
-	// Persist assistant message only (user message was saved by handler).
 	if err := s.SaveAssistantMessage(convID, msg.Content, nil); err != nil {
 		s.logger.Error("persist assistant message", zap.String("conv_id", convID), zap.Error(err))
 	}
-
 	return msg, nil
 }
 
-// ChatStream 返回 RAG 流。handler 自己收流、拼完整后再调 SaveMessages。
+// ChatStream 返回 RAG 流。
 func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.ragChain.Stream(ctx, question)
 	if err != nil {
@@ -60,14 +72,14 @@ func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.
 	return stream, nil
 }
 
-// SaveUserMessage 先落用户消息（流还没开始时写），防止页面刷新丢数据。
+// SaveUserMessage 先落用户消息。
 func (s *ChatService) SaveUserMessage(convID, question string) error {
 	return s.persister.SaveMessages(context.Background(), convID, []*schema.Message{
 		{Role: schema.User, Content: question},
 	})
 }
 
-// SaveAssistantMessage 只写助手回复，不重复写用户消息。
+// SaveAssistantMessage 只写助手回复。
 func (s *ChatService) SaveAssistantMessage(convID, answer string, toolCalls []schema.ToolCall) error {
 	msg := &schema.Message{Role: schema.Assistant, Content: answer}
 	if len(toolCalls) > 0 {
@@ -76,32 +88,34 @@ func (s *ChatService) SaveAssistantMessage(convID, answer string, toolCalls []sc
 	return s.persister.SaveMessages(context.Background(), convID, []*schema.Message{msg})
 }
 
-// SaveMessages 写一对用户+助手消息。内部用 background context 防 SSE 流结束后被取消。
+// SaveMessages 写一对用户+助手消息。
 func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer string, toolCalls []schema.ToolCall) error {
-	// Use background context for the actual ES write to avoid cancellation issues
-	// (SSE stream may have ended, cancelling the HTTP request context)
 	return s.persister.SaveMessages(context.Background(), convID, []*schema.Message{
 		{Role: schema.User, Content: question},
 		{Role: schema.Assistant, Content: answer, ToolCalls: toolCalls},
 	})
 }
 
-// Agent 跑 Agent 图（ReAct 循环），结果自动写 ES。
-// opts 可传入 compose.WithCheckPointID 等 Eino 选项。
+// Agent 跑 Agent 图 → 持久化 → 后处理（置信度 + 记忆提取 + 幻觉校验）。
 func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string, opts ...compose.Option) (*schema.Message, error) {
 	result, err := s.agentGraph.Invoke(ctx, msg, opts...)
 	if err != nil {
 		s.logger.Error("agent graph invoke failed", zap.Error(err))
 		return nil, err
 	}
+
+	// 先持久化纯净结果（不带置信度标注）。
 	if err := s.SaveAssistantMessage(convID, result.Content, result.ToolCalls); err != nil {
 		s.logger.Error("persist agent assistant message", zap.String("conv_id", convID), zap.Error(err))
 	}
+
+	// === 闭环后处理 ===
+	result = s.postProcess(ctx, msg, result, convID)
+
 	return result, nil
 }
 
 // AgentStream 返回 Agent 图流。
-// opts 可传入 compose.WithCheckPointID 等 Eino 选项。
 func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message, opts ...compose.Option) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.agentGraph.Stream(ctx, msg, opts...)
 	if err != nil {
@@ -111,3 +125,128 @@ func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message, opts
 	return stream, nil
 }
 
+// SummarizeHistory 对超出 maxKeep 的旧对话做摘要压缩。
+// 优先返回缓存；无缓存时异步生成，本次返回截断占位。
+func (s *ChatService) SummarizeHistory(convID string, messages []*schema.Message, maxKeep int) string {
+	if len(messages) <= maxKeep {
+		return ""
+	}
+
+	// 有缓存直接用。
+	if cached, ok := s.summaryCache.Load(convID); ok {
+		return cached.(string)
+	}
+
+	oldMsgs := messages[:len(messages)-maxKeep]
+	if len(oldMsgs) == 0 {
+		return ""
+	}
+
+	// 异步生成摘要（不阻塞本次响应）。
+	go s.generateSummaryAsync(convID, oldMsgs)
+
+	// 本次退回简单截断提示。
+	return fmt.Sprintf("[省略了 %d 条历史消息]", len(oldMsgs))
+}
+
+// generateSummaryAsync 后台生成摘要并缓存。
+func (s *ChatService) generateSummaryAsync(convID string, oldMsgs []*schema.Message) {
+	oldText := s.messagesToPlainText(oldMsgs)
+	sysMsg := &schema.Message{
+		Role:    schema.System,
+		Content: "请用一段中文总结以下对话的关键信息和结论，不超过200字：",
+	}
+	userMsg := &schema.Message{Role: schema.User, Content: oldText}
+
+	if s.memorySvc == nil || s.memorySvc.model == nil {
+		return
+	}
+
+	resp, err := s.memorySvc.model.Generate(context.Background(), []*schema.Message{sysMsg, userMsg})
+	if err != nil {
+		s.logger.Warn("async summary generation failed", zap.Error(err))
+		return
+	}
+
+	summary := "## 历史摘要\n" + resp.Content
+	s.summaryCache.Store(convID, summary)
+	s.logger.Debug("summary cached", zap.String("conv_id", convID))
+}
+
+// ---- 闭环后处理 ----
+
+// postProcess 执行 Agent 响应的后处理流水线：
+// 1. 置信度评估 → 2. 幻觉检测 → 3. 低置信度标记 → 4. 异步提取长期记忆。
+// 返回可能被标记的 result（原始 content 已保存到 ES，此处只影响用户看到的输出）。
+func (s *ChatService) postProcess(
+	ctx context.Context,
+	userMsg *schema.Message,
+	assistantMsg *schema.Message,
+	convID string,
+) *schema.Message {
+	// Step 1: 置信度评估
+	if s.confidenceSvc != nil {
+		cr := s.confidenceSvc.Evaluate(ctx, assistantMsg.Content, nil, nil)
+		if cr.NeedVerify {
+			s.logger.Warn("low confidence response",
+				zap.Float64("score", cr.Score),
+				zap.String("conv_id", convID),
+				zap.Strings("warnings", cr.Warnings),
+			)
+
+			// Step 2: 低置信度时尝试做事实校验（无工具结果时跳过）。
+			if s.feedbackSvc != nil {
+				factual, conflicts := s.feedbackSvc.FactCheck(nil, assistantMsg.Content)
+				if !factual {
+					cr.Warnings = append(cr.Warnings, conflicts...)
+				}
+			}
+
+			// Step 3: 在回复前注入置信度标注。
+			note := s.confidenceSvc.InjectConfidenceNote(cr)
+			if note != "" {
+				// 创建新的 Message，不改原消息（ES 已存纯净版）。
+				marked := *assistantMsg
+				marked.Content = note + assistantMsg.Content
+				assistantMsg = &marked
+			}
+		}
+	}
+
+	// Step 4: 异步提取长期记忆（不阻塞响应）。
+	s.extractMemories(ctx, convID, userMsg, assistantMsg)
+
+	return assistantMsg
+}
+
+// ---- 内部方法 ----
+
+func (s *ChatService) extractMemories(ctx context.Context, convID string, userMsg, assistantMsg *schema.Message) {
+	if s.memorySvc == nil {
+		return
+	}
+	messages := []*schema.Message{
+		userMsg,
+		assistantMsg,
+	}
+	s.memorySvc.ExtractAndStore(ctx, "default", convID, messages)
+}
+
+func (s *ChatService) messagesToPlainText(messages []*schema.Message) string {
+	var sb strings.Builder
+	for _, msg := range messages {
+		content := msg.Content
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+		if content == "" && len(msg.ToolCalls) > 0 {
+			names := make([]string, len(msg.ToolCalls))
+			for i, tc := range msg.ToolCalls {
+				names[i] = tc.Function.Name
+			}
+			content = "调用了工具: " + strings.Join(names, ", ")
+		}
+		sb.WriteString(fmt.Sprintf("[%s] %s\n", string(msg.Role), content))
+	}
+	return sb.String()
+}

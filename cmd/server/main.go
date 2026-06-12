@@ -15,11 +15,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/scheduler"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/server"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/server/middleware"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -58,7 +58,7 @@ func startServer(
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			logger.Info("Shutting down server gracefully...")
+			logger.Info("Shutting down server")
 
 			cronScheduler.Stop()
 			rateLimiter.Stop()

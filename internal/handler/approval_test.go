@@ -39,7 +39,7 @@ func setupApprovalTest(t *testing.T) (*gin.Engine, *zap.Logger) {
 	logger := zap.NewNop()
 	cfg := &config.Config{Cron: config.CronConfig{Enabled: false}}
 	_ = scheduler.NewCronScheduler(cfg, &stubAgent{}, logger, nil)
-	store := service.NewApprovalStore()
+	store := service.NewApprovalStore("data")
 	h := NewApprovalHandler(store, logger)
 
 	r := gin.New()

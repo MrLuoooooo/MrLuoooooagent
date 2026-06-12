@@ -42,6 +42,7 @@ func NewRouter(
 	modelH *handler.ModelHandler,
 	skillH *handler.SkillHandler,
 	wsH *handler.WorkspaceHandler,
+	fbH *handler.FeedbackHandler,
 	rl *middleware.RateLimiter,
 ) *gin.Engine {
 	engine := gin.New()
@@ -94,6 +95,7 @@ func NewRouter(
 		v1.GET("/workspace/drives", wsH.ListDrives)
 		v1.GET("/workspace/dir", wsH.ListDir)
 		v1.GET("/workspace/tree", wsH.ListTree)
+		v1.POST("/feedback", fbH.SubmitFeedback)
 	}
 
 	// SPA 静态文件服务（web/dist）

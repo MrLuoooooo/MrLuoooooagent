@@ -18,11 +18,10 @@ type ModelStore struct {
 	path   string
 }
 
-// NewModelStore 从磁盘加载自定义模型，没有就建空的。
-func NewModelStore() *ModelStore {
-	dir := "data"
-	os.MkdirAll(dir, 0755)
-	path := filepath.Join(dir, "custom_models.json")
+// NewModelStore 从 dataDir 加载自定义模型，没有就建空的。
+func NewModelStore(dataDir string) *ModelStore {
+	os.MkdirAll(dataDir, 0755)
+	path := filepath.Join(dataDir, "custom_models.json")
 	store := &ModelStore{path: path, custom: make([]config.ModelEntry, 0)}
 	store.load()
 	return store

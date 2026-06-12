@@ -85,6 +85,16 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 
 	if len(history) > 0 {
+		// 短期记忆压缩：超出 maxKeep 的旧消息异步做摘要，本次用截断。
+		const maxKeep = 20
+		if len(history) > maxKeep {
+			summary := h.svc.SummarizeHistory(convID, history, maxKeep)
+			history = history[len(history)-maxKeep:]
+			if summary != "" {
+				summaryMsg := &schema.Message{Role: schema.User, Content: summary}
+				history = append([]*schema.Message{summaryMsg}, history...)
+			}
+		}
 		req.Question = prependHistory(req.Question, history)
 	}
 

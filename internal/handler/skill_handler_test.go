@@ -14,7 +14,7 @@ import (
 )
 
 func newSkillHandler() *SkillHandler {
-	store := service.NewSkillStore()
+	store := service.NewSkillStore("data")
 	return NewSkillHandler(store, zap.NewNop())
 }
 
@@ -40,7 +40,7 @@ func TestSkillList_Empty(t *testing.T) {
 
 func TestSkillList_WithItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := service.NewSkillStore()
+	store := service.NewSkillStore("data")
 	store.AddOrUpdate(service.SkillEntry{Name: "test-skill", Prompt: "do something", Enabled: true})
 	h := NewSkillHandler(store, zap.NewNop())
 	r := gin.New()
@@ -123,7 +123,7 @@ func TestSkillUpsert_InvalidJSON(t *testing.T) {
 
 func TestSkillRemove_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	store := service.NewSkillStore()
+	store := service.NewSkillStore("data")
 	store.AddOrUpdate(service.SkillEntry{Name: "my-skill", Prompt: "do it"})
 	h := NewSkillHandler(store, zap.NewNop())
 	r := gin.New()

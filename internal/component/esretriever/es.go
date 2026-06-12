@@ -31,6 +31,7 @@ func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexN
 }
 
 // Retrieve 把 query 转成向量，从 ES 里搜 topK 条最相似的文档。
+// 向量失效（stub/embedding 不可用）时自动回退为 BM25 文本搜索。
 func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retriever.Option) ([]*schema.Document, error) {
 	options := retriever.GetCommonOptions(&retriever.Options{
 		TopK: &r.topK,
@@ -50,19 +51,31 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 		topK = *options.TopK
 	}
 
-	searchBody := map[string]any{
-		"knn": map[string]any{
-			"field":          "embedding",
-			"query_vector":   queryVec,
-			"k":              topK,
-			"num_candidates": topK * 10,
-		},
-		"_source": []string{"content", "meta_data", "created_at"},
-	}
+	// 检测 stub 向量（[1,0,0,...]）→ 回退为 BM25 文本搜索。
+	isStub := len(queryVec) >= 3 && queryVec[0] == 1.0 && queryVec[1] == 0.0 && queryVec[2] == 0.0
 
-	if options.ScoreThreshold != nil {
-		searchBody["knn"].(map[string]any)["min_score"] = *options.ScoreThreshold
+	var searchBody map[string]any
+	if isStub {
+		searchBody = map[string]any{
+			"query": map[string]any{
+				"match": map[string]any{"content": query},
+			},
+			"size": topK,
+		}
+	} else {
+		searchBody = map[string]any{
+			"knn": map[string]any{
+				"field":          "embedding",
+				"query_vector":   queryVec,
+				"k":              topK,
+				"num_candidates": topK * 10,
+			},
+		}
+		if options.ScoreThreshold != nil {
+			searchBody["knn"].(map[string]any)["min_score"] = *options.ScoreThreshold
+		}
 	}
+	searchBody["_source"] = []string{"content", "meta_data", "created_at"}
 
 	bodyBytes, _ := json.Marshal(searchBody)
 

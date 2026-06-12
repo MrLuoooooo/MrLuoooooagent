@@ -22,11 +22,10 @@ type SkillStore struct {
 	path   string
 }
 
-// NewSkillStore 从磁盘加载技能，没有就建空的。
-func NewSkillStore() *SkillStore {
-	dir := "data"
-	os.MkdirAll(dir, 0755)
-	path := filepath.Join(dir, "custom_skills.json")
+// NewSkillStore 从 dataDir 加载技能，没有就建空的。
+func NewSkillStore(dataDir string) *SkillStore {
+	os.MkdirAll(dataDir, 0755)
+	path := filepath.Join(dataDir, "custom_skills.json")
 	store := &SkillStore{path: path, skills: make([]SkillEntry, 0)}
 	store.load()
 	return store

@@ -47,6 +47,9 @@ search:
 conversation:
   max_history: 20
   storage_type: "es"
+memory:
+  enabled: true
+  retrieval_top_k: 5
 log:
   level: "debug"
   file_path: "./logs/goagent.log"
@@ -97,8 +100,9 @@ agent:
 
     ## 知识库规则
 
-    - 用户上传的文档会建立 RAG 索引，相关问题使用 rag_search 检索
-    - RAG 结果可能不完全匹配，结合检索结果和模型知识综合回答
+    - 用户上传的文档会建立 RAG 索引，相关问题使用 retrieve_knowledge 工具检索
+    - 当用户问"文档里有什么"、"帮我查一下"、"之前上传的"等内容时，立即调用 retrieve_knowledge
+    - 不要在未检索的情况下声称知道文档内容
 
     ## 不需要工具时的行为
 

@@ -30,7 +30,7 @@ func (m *testModel) BindTools(tools []*schema.ToolInfo) error { return nil }
 func TestModelManager_Generate(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := &config.Config{}
-	store := service.NewModelStore()
+	store := service.NewModelStore("data")
 
 	mm := NewModelManager(&testModel{name: "default"}, cfg, store, "", "", logger)
 
@@ -48,7 +48,7 @@ func TestModelManager_Generate(t *testing.T) {
 func TestModelManager_CurrentName_Empty(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := &config.Config{}
-	store := service.NewModelStore()
+	store := service.NewModelStore("data")
 
 	mm := NewModelManager(&testModel{name: "default"}, cfg, store, "", "", logger)
 	if name := mm.CurrentName(); name != "" {
@@ -59,7 +59,7 @@ func TestModelManager_CurrentName_Empty(t *testing.T) {
 func TestModelManager_BindTools_Propagates(t *testing.T) {
 	logger := zap.NewNop()
 	cfg := &config.Config{}
-	store := service.NewModelStore()
+	store := service.NewModelStore("data")
 
 	mm := NewModelManager(&testModel{name: "default"}, cfg, store, "", "", logger)
 

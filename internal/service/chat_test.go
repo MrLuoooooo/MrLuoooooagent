@@ -83,7 +83,7 @@ func newTestService(convSvc *mockConvSvc) *ChatService {
 	if convSvc == nil {
 		convSvc = &mockConvSvc{}
 	}
-	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, zap.NewNop())
+	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, nil, nil, nil, zap.NewNop())
 }
 
 func TestChatService_Chat_Persists(t *testing.T) {
@@ -229,7 +229,7 @@ func TestChatService_SaveMessages_ReportsError(t *testing.T) {
 func TestChatService_Chat_RagChainError(t *testing.T) {
 	// When the RAG chain itself fails, no save should occur
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, zap.NewNop())
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, zap.NewNop())
 	_, err := s.Chat(context.Background(), "fail", "conv_no_save")
 	if err == nil {
 		t.Fatal("expected error from failing RAG chain")
@@ -238,7 +238,7 @@ func TestChatService_Chat_RagChainError(t *testing.T) {
 
 func TestChatService_ChatStream_RagChainError(t *testing.T) {
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, zap.NewNop())
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, zap.NewNop())
 	_, err := s.ChatStream(context.Background(), "fail")
 	if err == nil {
 		t.Fatal("expected error from failing RAG chain")

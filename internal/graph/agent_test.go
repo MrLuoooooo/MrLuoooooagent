@@ -44,7 +44,7 @@ func TestNewAgentGraph_Compiles(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cm, tn, nil, nil, "", nil)
+	g, err := NewAgentGraph(cm, tn, nil, nil, nil, "", nil)
 	if err != nil {
 		t.Fatalf("NewAgentGraph() error = %v", err)
 	}
@@ -66,7 +66,7 @@ func TestNewAgentGraph_DirectAnswer(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cm, tn, nil, nil, "", nil)
+	g, err := NewAgentGraph(cm, tn, nil, nil, nil, "", nil)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

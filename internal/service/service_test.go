@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -167,8 +168,14 @@ func TestSkillStore_AllEmpty(t *testing.T) {
 
 // --- ApprovalStore tests ---
 
+func cleanApprovalFile(t *testing.T) {
+	t.Helper()
+	os.Remove("data/approvals.json")
+}
+
 func TestApprovalStore_AddAndPending(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "a1", Status: model.ApprovalPending})
 	as.Add(&model.ApprovalItem{ID: "a2", Status: model.ApprovalAccepted})
 	pending := as.Pending()
@@ -178,7 +185,8 @@ func TestApprovalStore_AddAndPending(t *testing.T) {
 }
 
 func TestApprovalStore_All(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "a1", Status: model.ApprovalPending})
 	as.Add(&model.ApprovalItem{ID: "a2", Status: model.ApprovalRejected})
 	all := as.All()
@@ -188,7 +196,8 @@ func TestApprovalStore_All(t *testing.T) {
 }
 
 func TestApprovalStore_GetSuccess(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "find-me", Status: model.ApprovalPending})
 	item, err := as.Get("find-me")
 	if err != nil {
@@ -200,7 +209,7 @@ func TestApprovalStore_GetSuccess(t *testing.T) {
 }
 
 func TestApprovalStore_GetNotFound(t *testing.T) {
-	as := NewApprovalStore()
+	as := NewApprovalStore("data")
 	_, err := as.Get("nonexistent")
 	if err == nil {
 		t.Fatal("expected error")
@@ -208,7 +217,8 @@ func TestApprovalStore_GetNotFound(t *testing.T) {
 }
 
 func TestApprovalStore_DecideAccept(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "a1", Status: model.ApprovalPending})
 	if err := as.Decide("a1", true); err != nil {
 		t.Fatalf("Decide: %v", err)
@@ -223,7 +233,8 @@ func TestApprovalStore_DecideAccept(t *testing.T) {
 }
 
 func TestApprovalStore_DecideReject(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "a1", Status: model.ApprovalPending})
 	if err := as.Decide("a1", false); err != nil {
 		t.Fatalf("Decide: %v", err)
@@ -235,7 +246,8 @@ func TestApprovalStore_DecideReject(t *testing.T) {
 }
 
 func TestApprovalStore_DecideAlreadyDecided(t *testing.T) {
-	as := NewApprovalStore()
+	cleanApprovalFile(t)
+	as := NewApprovalStore("data")
 	as.Add(&model.ApprovalItem{ID: "a1", Status: model.ApprovalAccepted})
 	err := as.Decide("a1", true)
 	if err == nil {
@@ -244,7 +256,7 @@ func TestApprovalStore_DecideAlreadyDecided(t *testing.T) {
 }
 
 func TestApprovalStore_DecideNotFound(t *testing.T) {
-	as := NewApprovalStore()
+	as := NewApprovalStore("data")
 	err := as.Decide("nonexistent", true)
 	if err == nil {
 		t.Fatal("expected error")
@@ -252,7 +264,7 @@ func TestApprovalStore_DecideNotFound(t *testing.T) {
 }
 
 func TestApprovalStore_MaxItems(t *testing.T) {
-	as := NewApprovalStore()
+	as := NewApprovalStore("data")
 	// Fill past max
 	for i := 0; i < 1050; i++ {
 		as.Add(&model.ApprovalItem{ID: "a%03d", Status: model.ApprovalPending})

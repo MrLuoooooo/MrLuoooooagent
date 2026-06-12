@@ -17,6 +17,7 @@ func NewAgentGraph(
 	toolsNode *compose.ToolsNode,
 	toolInfos []*schema.ToolInfo,
 	skills *service.SkillStore,
+	memorySvc *service.MemoryService,
 	systemPrompt string,
 	cpStore *store.CheckpointStore,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
@@ -28,6 +29,13 @@ func NewAgentGraph(
 	graph.AddLambdaNode("to_messages", compose.InvokableLambda(
 		func(ctx context.Context, msg *schema.Message) ([]*schema.Message, error) {
 			prompt := sysPrompt
+			// 注入用户长期记忆
+			if memorySvc != nil {
+				memBlock := memorySvc.InjectIntoPrompt(ctx, "default", msg.Content)
+				if memBlock != "" {
+					prompt += memBlock
+				}
+			}
 			if skills != nil {
 				enabled := skills.Enabled()
 				if len(enabled) > 0 {

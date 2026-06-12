@@ -235,6 +235,33 @@ func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config
 	return store.NewESConversationStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName, cfg.VectorStore.Elasticsearch.ConvMsgIndexName, logger)
 }
 
+func ProvideESMemoryStore(client *elasticsearch.Client, emb embedding.Embedder, ec *ResolvedEmbeddingConfig, cfg *config.Config, logger *zap.Logger) (*store.ESMemoryStore, error) {
+	dim := 768
+	if ec != nil && ec.Dimension > 0 {
+		dim = ec.Dimension
+	}
+	return store.NewESMemoryStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_memory", emb, logger, dim)
+}
+
+func ProvideESFeedbackStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESFeedbackStore, error) {
+	return store.NewESFeedbackStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_feedback", logger)
+}
+
+// modelCallerAdapter 将 ModelManager 适配为 service.ModelCaller 接口。
+type modelCallerAdapter struct{ mm *modelmanager.ModelManager }
+
+func (a *modelCallerAdapter) Generate(ctx context.Context, input []*eino_schema.Message, _ ...any) (*eino_schema.Message, error) {
+	return a.mm.Generate(ctx, input)
+}
+
+func ProvideMemoryService(memStore *store.ESMemoryStore, mm *modelmanager.ModelManager, logger *zap.Logger, cfg *config.Config) *service.MemoryService {
+	topK := 5
+	if cfg.Memory.RetrievalTopK > 0 {
+		topK = cfg.Memory.RetrievalTopK
+	}
+	return service.NewMemoryService(memStore, logger, &modelCallerAdapter{mm: mm}, topK, cfg.Memory.Enabled)
+}
+
 func ProvideDocumentStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESDocumentStore, error) {
 	return store.NewESDocumentStore(client, cfg.VectorStore.Elasticsearch.DocIndexName, logger)
 }
@@ -292,7 +319,7 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	return &ToolRegistry{}
 }
 
-func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, cfg *config.Config, cpStore *store.CheckpointStore) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
+func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, memorySvc *service.MemoryService, cfg *config.Config, cpStore *store.CheckpointStore) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
 	allTools := tool.RegisteredTools()
 	einoTools := make([]eino_tool.BaseTool, len(allTools))
 	for i, t := range allTools { einoTools[i] = t }
@@ -303,7 +330,7 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
-	return graph.NewAgentGraph(cm, tn, infos, skills, cfg.Agent.SystemPrompt, cpStore)
+	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cpStore)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
@@ -314,12 +341,30 @@ func ProvideBatchPipeline(agent compose.Runnable[*eino_schema.Message, *eino_sch
 	return pipeline.NewBatchPipeline(agent)
 }
 
-func ProvideModelStore() *service.ModelStore  { return service.NewModelStore() }
-func ProvideSkillStore() *service.SkillStore  { return service.NewSkillStore() }
-func ProvideApprovalStore() *service.ApprovalStore { return service.NewApprovalStore() }
+func ProvideModelStore(cfg *config.Config) *service.ModelStore {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" { dataDir = "data" }
+	return service.NewModelStore(dataDir)
+}
+func ProvideConfidenceService(logger *zap.Logger) *service.ConfidenceService {
+	return service.NewConfidenceService(logger)
+}
+func ProvideSkillStore(cfg *config.Config) *service.SkillStore {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" { dataDir = "data" }
+	return service.NewSkillStore(dataDir)
+}
+func ProvideApprovalStore(cfg *config.Config) *service.ApprovalStore {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" { dataDir = "data" }
+	return service.NewApprovalStore(dataDir)
+}
+func ProvideFeedbackService(fbStore *store.ESFeedbackStore, logger *zap.Logger) *service.FeedbackService {
+	return service.NewFeedbackService(fbStore, logger)
+}
 
-func ProvideChatService(rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, logger *zap.Logger) *service.ChatService {
-	return service.NewChatService(rag, agent, convSvc, logger)
+func ProvideChatService(rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, logger *zap.Logger) *service.ChatService {
+	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, logger)
 }
 
 func ProvideVectorDeleter(idx indexer.Indexer) service.VectorDeleter {
@@ -363,6 +408,10 @@ func ProvideWorkspaceHandler(logger *zap.Logger, cfg *config.Config) *handler.Wo
 	return handler.NewWorkspaceHandler(logger, cfg.Server)
 }
 
+func ProvideFeedbackHandler(svc *service.FeedbackService, logger *zap.Logger) *handler.FeedbackHandler {
+	return handler.NewFeedbackHandler(svc, logger)
+}
+
 func ProvideConvHandler(svc *service.ConversationService, logger *zap.Logger) *handler.ConversationHandler {
 	return handler.NewConversationHandler(svc, logger)
 }
@@ -379,8 +428,8 @@ func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
 	return middleware.NewRateLimiter(rps, rps*2)
 }
 
-func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, rl *middleware.RateLimiter) *gin.Engine {
-	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, rl)
+func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, fbH *handler.FeedbackHandler, rl *middleware.RateLimiter) *gin.Engine {
+	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, fbH, rl)
 }
 
 // ── Module ──
@@ -395,12 +444,17 @@ var Module = fx.Module("goagent",
 		ProvideModelManager,
 		ProvideChatModel,
 		ProvideModelStore,
+		ProvideConfidenceService,
 		ProvideSkillStore,
 		ProvideApprovalStore,
 		ProvideESClient,
 		ProvideIndexer,
 		ProvideRetriever,
 		ProvideESConversationStore,
+		ProvideESMemoryStore,
+		ProvideESFeedbackStore,
+		ProvideMemoryService,
+		ProvideFeedbackService,
 		ProvideDocumentStore,
 		ProvideDocStoreAdapter,
 		ProvideVectorDeleter,
@@ -420,6 +474,7 @@ var Module = fx.Module("goagent",
 		ProvideModelHandler,
 		ProvideSkillHandler,
 		ProvideWorkspaceHandler,
+		ProvideFeedbackHandler,
 		ProvideChatHandler,
 		ProvideConvHandler,
 		ProvideDocHandler,

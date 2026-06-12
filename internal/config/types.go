@@ -15,6 +15,7 @@ type Config struct {
 	Log           LogConfig           `mapstructure:"log"`
 	Stock         StockConfig         `mapstructure:"stock"`
 	Agent         AgentConfig         `mapstructure:"agent"`
+	Memory        MemoryConfig        `mapstructure:"memory"`
 }
 
 // StockConfig holds stock data middleware configuration.
@@ -25,6 +26,12 @@ type StockConfig struct {
 // AgentConfig holds agent behavior configuration.
 type AgentConfig struct {
 	SystemPrompt string `mapstructure:"system_prompt"`
+}
+
+// MemoryConfig holds long-term memory configuration.
+type MemoryConfig struct {
+	Enabled       bool `mapstructure:"enabled"`
+	RetrievalTopK int  `mapstructure:"retrieval_top_k"`
 }
 
 // AuthConfig holds authentication configuration.

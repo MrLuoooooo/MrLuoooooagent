@@ -1,0 +1,27 @@
+[
+  {
+    "query": "GoAgent 支持哪些文档格式",
+    "doc_ids": ["doc_1"],
+    "expected": "PDF、DOCX、XLSX、PPTX、TXT"
+  },
+  {
+    "query": "如何配置模型提供商",
+    "doc_ids": ["doc_1"],
+    "expected": "model_provider"
+  },
+  {
+    "query": "RAG 使用的向量库是什么",
+    "doc_ids": ["doc_1"],
+    "expected": "Elasticsearch"
+  },
+  {
+    "query": "系统使用什么 Web 框架",
+    "doc_ids": ["doc_1"],
+    "expected": "Gin"
+  },
+  {
+    "query": "依赖注入使用什么库",
+    "doc_ids": ["doc_1"],
+    "expected": "Uber Fx"
+  }
+]

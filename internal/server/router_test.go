@@ -17,7 +17,7 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	logger := zap.NewNop()
 
-	router := NewRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := NewRouter(cfg, logger, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if router == nil {
 		t.Fatal("NewRouter() returned nil")
 	}
