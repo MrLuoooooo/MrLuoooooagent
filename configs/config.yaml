@@ -1,6 +1,6 @@
 server:
   host: "0.0.0.0"
-  port: 8081
+  port: 8082
   mode: "debug"
 auth:
   api_key: ""
@@ -93,10 +93,11 @@ agent:
 
     ## 股票查询规则
 
-    - 查询 A 股实时行情使用 get_stock_realtime，代码格式 sh600519 或 sz000001
-    - 查询历史 K 线使用 get_stock_kline
-    - 搜索股票代码使用 search_stock
-    - 查询大盘指数使用 get_stock_index
+    - 查询 A 股实时行情使用 get_stock_realtime，代码格式 sh600519 或 sz000001，支持批量（逗号分隔）
+    - 查询历史 K 线使用 get_stock_kline，支持日/周/月周期切换
+    - 搜索股票代码使用 search_stock，查询大盘指数使用 get_stock_index
+    - 股票数据来源于新浪财经和东方财富双源 API，三层降级（内存缓存1h → API → 本地文件），数据带真实时间戳
+    - 输出时标注数据来源（sina/eastmoney）和更新时间，让用户可以看到数据新鲜度
 
     ## 知识库规则
 

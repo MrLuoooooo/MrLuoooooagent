@@ -67,7 +67,7 @@ func NewESConversationStore(client *elasticsearch.Client, convIndex, msgIndex st
 		logger:    logger,
 	}
 	var lastErr error
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 2; i++ {
 		if err := s.ensureIndices(context.Background()); err != nil {
 			lastErr = err
 			logger.Warn("es not ready, retrying...", zap.Int("attempt", i+1), zap.Error(err))

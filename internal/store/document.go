@@ -46,7 +46,7 @@ func NewESDocumentStore(client *elasticsearch.Client, docIndex string, logger *z
 	}
 	// Retry connecting to ES.
 	var lastErr error
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 2; i++ {
 		if err := s.ensureIndex(context.Background()); err != nil {
 			lastErr = err
 			logger.Warn("es doc index not ready, retrying...", zap.Int("attempt", i+1), zap.Error(err))

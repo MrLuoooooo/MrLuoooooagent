@@ -4,64 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
-// ── stock data models (matching stock-middleware output) ──
-
-type stockRealtime struct {
-	Code       string    `json:"code"`
-	Name       string    `json:"name"`
-	Price      float64   `json:"price"`
-	Open       float64   `json:"open"`
-	High       float64   `json:"high"`
-	Low        float64   `json:"low"`
-	PreClose   float64   `json:"pre_close"`
-	Change     float64   `json:"change"`
-	ChangeRate float64   `json:"change_rate"`
-	Volume     int64     `json:"volume"`
-	Amount     float64   `json:"amount"`
-	Timestamp  time.Time `json:"timestamp"`
-	Source     string    `json:"source"`
-}
-
-type stockKLine struct {
-	Code      string    `json:"code"`
-	Time      string    `json:"time"`
-	Open      float64   `json:"open"`
-	High      float64   `json:"high"`
-	Low       float64   `json:"low"`
-	Close     float64   `json:"close"`
-	Volume    int64     `json:"volume"`
-	Amount    float64   `json:"amount"`
-	Timestamp time.Time `json:"timestamp"`
-}
-
 // ── Tool: get_stock_realtime ─────────────────────────────
 
-// StockRealtimeTool reads realtime stock data from the stock-middleware output.
+// StockRealtimeTool 获取 A 股实时行情，Collector 多源降级。
 type StockRealtimeTool struct {
-	dataDir string
+	collector *stock.Collector
 }
 
 // NewStockRealtimeTool —
-func NewStockRealtimeTool(dataDir string) *StockRealtimeTool {
-	if dataDir == "" {
-		dataDir = `D:\stock\data\stocks`
-	}
-	return &StockRealtimeTool{dataDir: dataDir}
+func NewStockRealtimeTool(collector *stock.Collector) *StockRealtimeTool {
+	return &StockRealtimeTool{collector: collector}
 }
 
 func (t *StockRealtimeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "get_stock_realtime",
-		Desc: "获取A股实时行情数据。数据来自 stock-middleware 中间件的定时采集。支持批量查询多个股票（逗号分隔）。",
+		Desc: "获取A股实时行情。双源降级（新浪+东方财富），失败回退本地缓存。支持批量查询（逗号分隔）。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"codes": {
 				Type:     schema.String,
@@ -93,7 +58,7 @@ func (t *StockRealtimeTool) InvokableRun(ctx context.Context, argsJSON string, o
 		if code == "" {
 			continue
 		}
-		data, err := t.readRealtime(code)
+		data, err := t.collector.FetchRealtime(ctx, code)
 		if err != nil {
 			b.WriteString(fmt.Sprintf("- **%s**: 数据暂不可用 (%v)\n", code, err))
 			continue
@@ -114,43 +79,27 @@ func (t *StockRealtimeTool) InvokableRun(ctx context.Context, argsJSON string, o
 	}
 
 	if found == 0 {
-		return "无可用实时行情数据。请确认 stock-middleware 已运行且股票代码正确。", nil
+		return "无可用实时行情数据。请确认网络正常且股票代码正确。", nil
 	}
 	return b.String(), nil
 }
 
-func (t *StockRealtimeTool) readRealtime(code string) (*stockRealtime, error) {
-	path := filepath.Join(t.dataDir, "realtime", code+".json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("文件读取失败: %w", err)
-	}
-	var s stockRealtime
-	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("JSON解析失败: %w", err)
-	}
-	return &s, nil
-}
-
 // ── Tool: get_stock_kline ────────────────────────────────
 
-// StockKLineTool reads K-line history from the stock-middleware output.
+// StockKLineTool 获取 A 股 K 线历史，Collector 多源降级。
 type StockKLineTool struct {
-	dataDir string
+	collector *stock.Collector
 }
 
 // NewStockKLineTool —
-func NewStockKLineTool(dataDir string) *StockKLineTool {
-	if dataDir == "" {
-		dataDir = `D:\stock\data\stocks`
-	}
-	return &StockKLineTool{dataDir: dataDir}
+func NewStockKLineTool(collector *stock.Collector) *StockKLineTool {
+	return &StockKLineTool{collector: collector}
 }
 
 func (t *StockKLineTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "get_stock_kline",
-		Desc: "获取A股历史K线数据。数据来自 stock-middleware 中间件。返回最近N条K线（默认20条）。",
+		Desc: "获取A股历史K线数据。双源降级（新浪+东方财富），失败回退本地缓存。返回最近N条K线。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"code": {
 				Type:     schema.String,
@@ -193,13 +142,10 @@ func (t *StockKLineTool) InvokableRun(ctx context.Context, argsJSON string, opts
 		args.Limit = 100
 	}
 
-	klines, err := t.readKLine(args.Code, args.Period)
+	klines, err := t.collector.FetchKLine(ctx, args.Code, args.Period, args.Limit)
 	if err != nil {
-		// Graceful degradation: return hint instead of error.
-		return fmt.Sprintf("K线数据暂不可用 (%s, %s): %v。请等待 stock-middleware 采集数据后重试。", args.Code, args.Period, err), nil
+		return fmt.Sprintf("K线数据暂不可用 (%s, %s): %v", args.Code, args.Period, err), nil
 	}
-
-	// Take last N.
 	if len(klines) > args.Limit {
 		klines = klines[len(klines)-args.Limit:]
 	}
@@ -217,24 +163,10 @@ func (t *StockKLineTool) InvokableRun(ctx context.Context, argsJSON string, opts
 		first := klines[0]
 		last := klines[len(klines)-1]
 		chg := (last.Close - first.Close) / first.Close * 100
-		b.WriteString(fmt.Sprintf("\n**区间涨跌**: %.2f → %.2f (%.2f%%) | 数据更新时间: %s\n",
+		b.WriteString(fmt.Sprintf("\n**区间涨跌**: %.2f → %.2f (%.2f%%) | 更新: %s\n",
 			first.Close, last.Close, chg, klines[len(klines)-1].Timestamp.Format("2006-01-02 15:04:05")))
 	}
-
 	return b.String(), nil
-}
-
-func (t *StockKLineTool) readKLine(code, period string) ([]stockKLine, error) {
-	path := filepath.Join(t.dataDir, "historical", code+"_"+period+".json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("文件读取失败: %w", err)
-	}
-	var klines []stockKLine
-	if err := json.Unmarshal(data, &klines); err != nil {
-		return nil, fmt.Errorf("JSON解析失败: %w", err)
-	}
-	return klines, nil
 }
 
 // ── compile-time checks ──

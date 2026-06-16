@@ -33,6 +33,10 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/scheduler"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/server/middleware"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock"
+	stockapi "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/api"
+	stockcache "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/cache"
+	stockstore "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/storage"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -232,7 +236,12 @@ func ProvideRetriever(client *elasticsearch.Client, emb embedding.Embedder, cfg 
 }
 
 func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESConversationStore, error) {
-	return store.NewESConversationStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName, cfg.VectorStore.Elasticsearch.ConvMsgIndexName, logger)
+	s, err := store.NewESConversationStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName, cfg.VectorStore.Elasticsearch.ConvMsgIndexName, logger)
+	if err != nil {
+		logger.Warn("es conversation store unavailable", zap.Error(err))
+		return nil, nil
+	}
+	return s, nil
 }
 
 func ProvideESMemoryStore(client *elasticsearch.Client, emb embedding.Embedder, ec *ResolvedEmbeddingConfig, cfg *config.Config, logger *zap.Logger) (*store.ESMemoryStore, error) {
@@ -240,11 +249,21 @@ func ProvideESMemoryStore(client *elasticsearch.Client, emb embedding.Embedder, 
 	if ec != nil && ec.Dimension > 0 {
 		dim = ec.Dimension
 	}
-	return store.NewESMemoryStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_memory", emb, logger, dim)
+	s, err := store.NewESMemoryStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_memory", emb, logger, dim)
+	if err != nil {
+		logger.Warn("es memory store unavailable, disabling memory feature", zap.Error(err))
+		return nil, nil
+	}
+	return s, nil
 }
 
 func ProvideESFeedbackStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESFeedbackStore, error) {
-	return store.NewESFeedbackStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_feedback", logger)
+	s, err := store.NewESFeedbackStore(client, cfg.VectorStore.Elasticsearch.ConvIndexName+"_feedback", logger)
+	if err != nil {
+		logger.Warn("es feedback store unavailable", zap.Error(err))
+		return nil, nil
+	}
+	return s, nil
 }
 
 // modelCallerAdapter 将 ModelManager 适配为 service.ModelCaller 接口。
@@ -259,11 +278,20 @@ func ProvideMemoryService(memStore *store.ESMemoryStore, mm *modelmanager.ModelM
 	if cfg.Memory.RetrievalTopK > 0 {
 		topK = cfg.Memory.RetrievalTopK
 	}
-	return service.NewMemoryService(memStore, logger, &modelCallerAdapter{mm: mm}, topK, cfg.Memory.Enabled)
+	enabled := cfg.Memory.Enabled
+	if memStore == nil {
+		enabled = false
+	}
+	return service.NewMemoryService(memStore, logger, &modelCallerAdapter{mm: mm}, topK, enabled)
 }
 
 func ProvideDocumentStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESDocumentStore, error) {
-	return store.NewESDocumentStore(client, cfg.VectorStore.Elasticsearch.DocIndexName, logger)
+	s, err := store.NewESDocumentStore(client, cfg.VectorStore.Elasticsearch.DocIndexName, logger)
+	if err != nil {
+		logger.Warn("es document store unavailable", zap.Error(err))
+		return nil, nil
+	}
+	return s, nil
 }
 
 type docStoreAdapter struct{ es *store.ESDocumentStore }
@@ -289,7 +317,23 @@ func ProvideRAGChain(cm model.ChatModel, rd retriever.Retriever) (compose.Runnab
 
 type ToolRegistry struct{}
 
-func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message]) *ToolRegistry {
+func ProvideStockCache(logger *zap.Logger) *stockcache.MemoryCache {
+	return stockcache.NewMemoryCache(logger)
+}
+
+func ProvideStockStore(cfg *config.Config, logger *zap.Logger) *stockstore.FileStore {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	return stockstore.NewFileStore(dataDir, logger)
+}
+
+func ProvideStockCollector(clients []stockapi.Client, cache *stockcache.MemoryCache, store *stockstore.FileStore, logger *zap.Logger) *stock.Collector {
+	return stock.NewCollector(clients, cache, store, logger)
+}
+
+func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector) *ToolRegistry {
 	tool.Register(&tool.ReadFileTool{})
 	tool.Register(&tool.WriteFileTool{})
 	tool.Register(&tool.EditFileTool{})
@@ -307,8 +351,8 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 		if err != nil { return "", err }
 		return msg.Content, nil
 	}))
-	tool.Register(tool.NewStockRealtimeTool(cfg.Stock.DataDir))
-	tool.Register(tool.NewStockKLineTool(cfg.Stock.DataDir))
+	tool.Register(tool.NewStockRealtimeTool(collector))
+	tool.Register(tool.NewStockKLineTool(collector))
 	tool.Register(tool.NewWebFetchTool(cfg.Search.Enabled))
 	tool.Register(&tool.CalculatorTool{})
 	tool.Register(&tool.StockSearchTool{})
@@ -377,6 +421,10 @@ func ProvideDocService(doc compose.Runnable[[]byte, []string], docStore service.
 }
 
 func ProvideConvService(esStore *store.ESConversationStore, logger *zap.Logger) *service.ConversationService {
+	if esStore == nil {
+		logger.Warn("es unavailable, using in-memory conversation store")
+		return service.NewConversationService(store.NewMemConvStore(), logger)
+	}
 	return service.NewConversationService(esStore, logger)
 }
 
@@ -459,6 +507,9 @@ var Module = fx.Module("goagent",
 		ProvideDocStoreAdapter,
 		ProvideVectorDeleter,
 		ProvideRAGChain,
+		ProvideStockCache,
+		ProvideStockStore,
+		ProvideStockCollector,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,
 		ProvideAgentGraph,
@@ -480,6 +531,7 @@ var Module = fx.Module("goagent",
 		ProvideDocHandler,
 		ProvideRouter,
 	),
+	stockapi.Module,
 	fx.Invoke(func(logger *zap.Logger) {
 		handler := callback.NewLoggingCallback(logger)
 		callbacks.AppendGlobalHandlers(handler)

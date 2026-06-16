@@ -76,7 +76,7 @@ func NewESMemoryStore(
 		logger:    logger,
 	}
 	var lastErr error
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 2; i++ {
 		if err := s.ensureIndex(context.Background(), embeddingDim); err != nil {
 			lastErr = err
 			logger.Warn("es memory index not ready, retrying...", zap.Int("attempt", i+1), zap.Error(err))

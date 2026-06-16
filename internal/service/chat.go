@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/callback"
 	"go.uber.org/zap"
 )
 
@@ -98,7 +99,12 @@ func (s *ChatService) SaveMessages(ctx context.Context, convID, question, answer
 
 // Agent 跑 Agent 图 → 持久化 → 后处理（置信度 + 记忆提取 + 幻觉校验）。
 func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID string, opts ...compose.Option) (*schema.Message, error) {
-	result, err := s.agentGraph.Invoke(ctx, msg, opts...)
+	// 工具结果收集器：callback 写，Agent 执行完后读，传给置信度评估做 FactCheck 对齐
+	bag := &callback.ToolResultsBag{}
+	collector := callback.NewToolCollector(bag)
+	allOpts := append([]compose.Option{compose.WithCallbacks(collector)}, opts...)
+
+	result, err := s.agentGraph.Invoke(ctx, msg, allOpts...)
 	if err != nil {
 		s.logger.Error("agent graph invoke failed", zap.Error(err))
 		return nil, err
@@ -109,8 +115,8 @@ func (s *ChatService) Agent(ctx context.Context, msg *schema.Message, convID str
 		s.logger.Error("persist agent assistant message", zap.String("conv_id", convID), zap.Error(err))
 	}
 
-	// === 闭环后处理 ===
-	result = s.postProcess(ctx, msg, result, convID)
+	// 工具结果传入置信度评估，实现真正的 FactCheck 对齐
+	result = s.postProcess(ctx, msg, result, convID, bag.Results)
 
 	return result, nil
 }
@@ -177,16 +183,18 @@ func (s *ChatService) generateSummaryAsync(convID string, oldMsgs []*schema.Mess
 
 // postProcess 执行 Agent 响应的后处理流水线：
 // 1. 置信度评估 → 2. 幻觉检测 → 3. 低置信度标记 → 4. 异步提取长期记忆。
+// toolResults 来自 Agent 执行过程中收集的实际工具返回，用于置信度的工具对齐检测。
 // 返回可能被标记的 result（原始 content 已保存到 ES，此处只影响用户看到的输出）。
 func (s *ChatService) postProcess(
 	ctx context.Context,
 	userMsg *schema.Message,
 	assistantMsg *schema.Message,
 	convID string,
+	toolResults []*schema.Message,
 ) *schema.Message {
-	// Step 1: 置信度评估
+	// Step 1: 置信度评估（含工具结果对齐）
 	if s.confidenceSvc != nil {
-		cr := s.confidenceSvc.Evaluate(ctx, assistantMsg.Content, nil, nil)
+		cr := s.confidenceSvc.Evaluate(ctx, assistantMsg.Content, toolResults, nil)
 		if cr.NeedVerify {
 			s.logger.Warn("low confidence response",
 				zap.Float64("score", cr.Score),
@@ -194,9 +202,9 @@ func (s *ChatService) postProcess(
 				zap.Strings("warnings", cr.Warnings),
 			)
 
-			// Step 2: 低置信度时尝试做事实校验（无工具结果时跳过）。
+			// Step 2: 低置信度时尝试做事实校验。
 			if s.feedbackSvc != nil {
-				factual, conflicts := s.feedbackSvc.FactCheck(nil, assistantMsg.Content)
+				factual, conflicts := s.feedbackSvc.FactCheck(toolResults, assistantMsg.Content)
 				if !factual {
 					cr.Warnings = append(cr.Warnings, conflicts...)
 				}
