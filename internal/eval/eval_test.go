@@ -57,3 +57,13 @@ func TestSampleData(t *testing.T) {
 		}
 	}
 }
+
+// TestStockEval 股票置信度专项评估。
+func TestStockEval(t *testing.T) {
+	cases := GenerateStockEvalCases()
+	passed, total := RunStockEval(t, cases)
+	t.Logf("stock eval: %d/%d passed", passed, total)
+	if passed < 3 {
+		t.Errorf("stock eval: only %d/%d passed, expected >= 3", passed, total)
+	}
+}

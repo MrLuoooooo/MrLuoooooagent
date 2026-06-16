@@ -32,3 +32,6 @@ go.work
 go.work.sum
 vendor/
 
+# IDE / AI tools
+.workbuddy/
+.codebuddy/

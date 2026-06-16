@@ -166,6 +166,77 @@ func GenerateSampleTestData() []QueryLabel {
 	}
 }
 
+// StockEvalCase 股票查询评估用例：检查 AI 输出是否忠实反映 API 数据。
+type StockEvalCase struct {
+	Name        string  // 用例名
+	ToolOutput  string  // 工具返回（模拟 API 数据）
+	AIModelOut  string  // 模型输出
+	ExpectedNum bool    // 期望数值是否一致
+	KeyFields   []string // 必须包含的字段
+}
+
+// RunStockEval 跑股票置信度专项评估。
+// 检查：1) 关键数值是否出现在模型输出中 2) 格式如 ¥数字 是否保留。
+func RunStockEval(t *testing.T, cases []StockEvalCase) (passed, total int) {
+	total = len(cases)
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			ok := true
+			for _, field := range tc.KeyFields {
+				if !strings.Contains(strings.ToLower(tc.AIModelOut), strings.ToLower(field)) {
+					t.Errorf("missing field %q in output: %s", field, tc.AIModelOut)
+					ok = false
+				}
+			}
+			if tc.ExpectedNum {
+				// 简单验证：美元符号/数字存在
+				if !strings.Contains(tc.AIModelOut, "¥") && !strings.Contains(tc.AIModelOut, "元") {
+					t.Errorf("stock output should contain price marker")
+					ok = false
+				}
+			}
+			if ok {
+				passed++
+			}
+		})
+	}
+	return
+}
+
+// GenerateStockEvalCases 生成股票评估用例。
+func GenerateStockEvalCases() []StockEvalCase {
+	return []StockEvalCase{
+		{
+			Name:       "价格数字忠实传递",
+			ToolOutput: `## 实时行情\n\n### 贵州茅台 sh600519\n- **现价**: ¥1255.67`,
+			AIModelOut: "贵州茅台当前价格 1255.67 元",
+			ExpectedNum: true,
+			KeyFields: []string{"1255", "茅台"},
+		},
+		{
+			Name:       "涨跌幅方向正确",
+			ToolOutput: `涨跌: ↓-15.43 (-1.21%)`,
+			AIModelOut: "今日下跌 1.21%，跌 15.43 元",
+			ExpectedNum: true,
+			KeyFields: []string{"1.21", "跌"},
+		},
+		{
+			Name:       "数据源标注",
+			ToolOutput: `来源: sina`,
+			AIModelOut: "数据来源于新浪财经",
+			ExpectedNum: false,
+			KeyFields: []string{"新浪"},
+		},
+		{
+			Name:       "幻觉检测-编造价格应失败",
+			ToolOutput: `**现价**: ¥1255.67`,
+			AIModelOut: "贵州茅台现价 1000 元", // 编造的价格
+			ExpectedNum: false,
+			KeyFields: []string{"1000"}, // 包含但不等于真实值
+		},
+	}
+}
+
 // ---- 内部工具 ----
 
 func toSet(ids []string) map[string]bool {

@@ -221,22 +221,23 @@ func (s *ChatService) postProcess(
 		}
 	}
 
-	// Step 4: 异步提取长期记忆（不阻塞响应）。
-	s.extractMemories(ctx, convID, userMsg, assistantMsg)
+	// Step 4: 异步提取长期记忆（含工具结果，不阻塞响应）。
+	s.extractMemories(ctx, convID, userMsg, assistantMsg, toolResults)
 
 	return assistantMsg
 }
 
 // ---- 内部方法 ----
 
-func (s *ChatService) extractMemories(ctx context.Context, convID string, userMsg, assistantMsg *schema.Message) {
+func (s *ChatService) extractMemories(ctx context.Context, convID string, userMsg, assistantMsg *schema.Message, toolResults []*schema.Message) {
 	if s.memorySvc == nil {
 		return
 	}
-	messages := []*schema.Message{
-		userMsg,
-		assistantMsg,
-	}
+	// 包含工具结果，让 LLM 提取时看到原始数据（如股票 API 返回的行情）
+	messages := make([]*schema.Message, 0, 2+len(toolResults))
+	messages = append(messages, userMsg)
+	messages = append(messages, toolResults...) // 工具结果在 assistant 之前
+	messages = append(messages, assistantMsg)
 	s.memorySvc.ExtractAndStore(ctx, "default", convID, messages)
 }
 

@@ -220,11 +220,13 @@ func (s *ConfidenceService) detectUncertainty(output string) (float64, []string)
 }
 
 // toolAlignment 检查 LLM 输出与工具结果的对齐程度。
+// 股票工具结果额外做数值精度校验（价格、涨跌幅等）。
 func (s *ConfidenceService) toolAlignment(output string, toolResults []*schema.Message) float64 {
 	if len(toolResults) == 0 {
 		return 1.0
 	}
 
+	// 通用文本片段对齐。
 	totalSnippets := 0
 	matchedSnippets := 0
 
@@ -236,12 +238,69 @@ func (s *ConfidenceService) toolAlignment(output string, toolResults []*schema.M
 				matchedSnippets++
 			}
 		}
+
+		// 股票专项：提取关键数值，做精确匹配。
+		// 每个数值权重 ×3，因为股票数据中数值准确性最关键。
+		if s.isStockToolResult(tr.Content) {
+			stockNums := s.extractStockNumbers(tr.Content)
+			for _, sn := range stockNums {
+				totalSnippets++
+				if strings.Contains(output, sn) {
+					matchedSnippets += 3 // 股票数值匹配权重更高
+				}
+			}
+		}
 	}
 
 	if totalSnippets == 0 {
 		return 1.0
 	}
 	return safeDiv(float64(matchedSnippets), float64(totalSnippets))
+}
+
+// isStockToolResult 判断工具结果是否包含股票行情数据。
+func (s *ConfidenceService) isStockToolResult(content string) bool {
+	return strings.Contains(content, "实时行情") ||
+		strings.Contains(content, "K线数据")
+}
+
+// extractStockNumbers 从股票工具结果中提取关键数值（价格、涨跌幅等）。
+func (s *ConfidenceService) extractStockNumbers(content string) []string {
+	var nums []string
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		// 现价: ¥1255.67
+		if idx := strings.Index(line, "现价"); idx >= 0 {
+			if n := extractPrice(line); n != "" {
+				nums = append(nums, n)
+			}
+		}
+		// 涨跌: ↓-15.43 (-1.21%)
+		if strings.Contains(line, "涨跌") || strings.Contains(line, "区间涨跌") {
+			nums = append(nums, strings.TrimSpace(line))
+		}
+	}
+	return nums
+}
+
+// extractPrice 从"现价: ¥1255.67"中提取"1255.67"。
+func extractPrice(line string) string {
+	start := strings.Index(line, "¥")
+	if start < 0 {
+		return ""
+	}
+	rest := line[start+len("¥"):]
+	// 取到空格或行尾。
+	end := strings.IndexAny(rest, " \t\n|")
+	if end < 0 {
+		end = len(rest)
+	}
+	price := strings.TrimSpace(rest[:end])
+	// 精度归一：模型可能省去末尾0，API 可能有 .00
+	// 统一去掉末尾无意义的0
+	price = strings.TrimRight(price, "0")
+	price = strings.TrimRight(price, ".")
+	return price
 }
 
 // sourceAlignment 检查 LLM 输出与源文档的对齐程度。
