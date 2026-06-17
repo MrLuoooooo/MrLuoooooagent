@@ -363,7 +363,11 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	return &ToolRegistry{}
 }
 
-func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, memorySvc *service.MemoryService, cfg *config.Config, cpStore *store.CheckpointStore) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
+func ProvideRetryGate() *graph.RetryGate {
+	return graph.NewRetryGate(3) // 连续参数错误最多 3 次
+}
+
+func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, memorySvc *service.MemoryService, cfg *config.Config, cpStore *store.CheckpointStore, retryGate *graph.RetryGate) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
 	allTools := tool.RegisteredTools()
 	einoTools := make([]eino_tool.BaseTool, len(allTools))
 	for i, t := range allTools { einoTools[i] = t }
@@ -374,7 +378,7 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
-	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cpStore)
+	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cpStore, retryGate)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
@@ -510,6 +514,7 @@ var Module = fx.Module("goagent",
 		ProvideStockCache,
 		ProvideStockStore,
 		ProvideStockCollector,
+		ProvideRetryGate,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,
 		ProvideAgentGraph,

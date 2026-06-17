@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -23,6 +22,18 @@ func NewStockRealtimeTool(collector *stock.Collector) *StockRealtimeTool {
 	return &StockRealtimeTool{collector: collector}
 }
 
+// stockRealtimeArgs 实现 ArgsValidator，参数错误可由 RetryGate 统一拦截。
+type stockRealtimeArgs struct {
+	Codes string `json:"codes"`
+}
+
+func (a stockRealtimeArgs) Validate() error {
+	if a.Codes == "" {
+		return fmt.Errorf("codes 不能为空")
+	}
+	return nil
+}
+
 func (t *StockRealtimeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "get_stock_realtime",
@@ -38,14 +49,9 @@ func (t *StockRealtimeTool) Info(ctx context.Context) (*schema.ToolInfo, error) 
 }
 
 func (t *StockRealtimeTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
-	var args struct {
-		Codes string `json:"codes"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "", fmt.Errorf("get_stock_realtime: invalid args: %w", err)
-	}
-	if args.Codes == "" {
-		return "", fmt.Errorf("get_stock_realtime: codes 不能为空")
+	args, err := ParseArgs[stockRealtimeArgs](argsJSON)
+	if err != nil {
+		return "", fmt.Errorf("get_stock_realtime: %w", err)
 	}
 
 	codes := strings.Split(args.Codes, ",")
@@ -120,17 +126,24 @@ func (t *StockKLineTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// stockKLineArgs 实现 ArgsValidator，默认值由 InvokableRun 在 ParseArgs 后设置。
+type stockKLineArgs struct {
+	Code   string `json:"code"`
+	Period string `json:"period"`
+	Limit  int    `json:"limit"`
+}
+
+func (a stockKLineArgs) Validate() error {
+	if a.Code == "" {
+		return fmt.Errorf("code 不能为空")
+	}
+	return nil
+}
+
 func (t *StockKLineTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
-	var args struct {
-		Code   string `json:"code"`
-		Period string `json:"period"`
-		Limit  int    `json:"limit"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return "", fmt.Errorf("get_stock_kline: invalid args: %w", err)
-	}
-	if args.Code == "" {
-		return "", fmt.Errorf("get_stock_kline: code 不能为空")
+	args, err := ParseArgs[stockKLineArgs](argsJSON)
+	if err != nil {
+		return "", fmt.Errorf("get_stock_kline: %w", err)
 	}
 	if args.Period == "" {
 		args.Period = "day"

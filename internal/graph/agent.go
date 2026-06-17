@@ -20,6 +20,7 @@ func NewAgentGraph(
 	memorySvc *service.MemoryService,
 	systemPrompt string,
 	cpStore *store.CheckpointStore,
+	retryGate *RetryGate,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
 
 	sysPrompt := systemPrompt
@@ -88,6 +89,8 @@ func NewAgentGraph(
 
 	graph.AddToolsNode("tools", toolsNode)
 
+	graph.AddLambdaNode("retry_gate", compose.InvokableLambda(retryGate.Intercept))
+
 	graph.AddLambdaNode("tool_as_user", compose.InvokableLambda(
 		func(ctx context.Context, msgs []*schema.Message) ([]*schema.Message, error) {
 			out := make([]*schema.Message, len(msgs))
@@ -112,7 +115,8 @@ func NewAgentGraph(
 		map[string]bool{"tools": true, compose.END: true},
 	))
 
-	graph.AddEdge("tools", "tool_as_user")
+	graph.AddEdge("tools", "retry_gate")
+	graph.AddEdge("retry_gate", "tool_as_user")
 	graph.AddEdge("tool_as_user", "chat_model")
 
 	// 使用 Eino 内置的 checkpoint 机制
