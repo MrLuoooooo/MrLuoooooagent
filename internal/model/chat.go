@@ -5,6 +5,7 @@ type ChatRequest struct {
 	Question       string `json:"question" binding:"required"`
 	Stream         bool   `json:"stream"`
 	Agent          bool   `json:"agent"`
+	StockMode      bool   `json:"stock_mode"`
 	ConversationID string `json:"conversation_id"`
 }
 

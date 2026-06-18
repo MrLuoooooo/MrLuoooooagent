@@ -19,17 +19,23 @@ func NewAgentGraph(
 	skills *service.SkillStore,
 	memorySvc *service.MemoryService,
 	systemPrompt string,
+	stockSystemPrompt string,
 	cpStore *store.CheckpointStore,
 	retryGate *RetryGate,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
 
 	sysPrompt := systemPrompt
+	stockPrompt := stockSystemPrompt
 
 	graph := compose.NewGraph[*schema.Message, *schema.Message]()
 
 	graph.AddLambdaNode("to_messages", compose.InvokableLambda(
 		func(ctx context.Context, msg *schema.Message) ([]*schema.Message, error) {
 			prompt := sysPrompt
+			// 股票专精模式：若 context 中有 stock_mode=true 且有股票专用 prompt，则使用之。
+			if v, ok := ctx.Value("stock_mode").(bool); ok && v && stockPrompt != "" {
+				prompt = stockPrompt
+			}
 			// 注入用户长期记忆
 			if memorySvc != nil {
 				memBlock := memorySvc.InjectIntoPrompt(ctx, "default", msg.Content)
@@ -52,6 +58,8 @@ func NewAgentGraph(
 					prompt += sb.String()
 				}
 			}
+			// 注入工具并行调用策略（不修改用户 system_prompt，以扩展方式附加）
+			prompt += toolExecutionStrategy
 			// Inject current workspace before tools section so the model sees it first.
 			win := tool.GetWorkspaceWinPath()
 			if win == "" {
@@ -136,3 +144,22 @@ func prefixForContent(content string) string {
 	}
 	return content
 }
+
+// toolExecutionStrategy 并行工具调用指导规则。
+// 以扩展方式注入 prompt，不修改用户配置的 system_prompt 原文。
+const toolExecutionStrategy = `
+
+## 工具并行调用策略
+
+当单次回复中需要调用多个互不依赖的工具时，在同一轮中一次性发出所有 tool_calls，例如：
+- 同时查询多只股票行情（get_stock_realtime 支持批量，但多只独立查询也可并行）
+- 同时搜索多个不相关的关键词
+- 同时读取多个不同文件
+
+这些工具调用将并行执行，大幅减少等待时间。
+
+仅在以下情况才分步调用：
+- 后一个工具的输入依赖前一个工具的输出
+- 同一个文件需要先写入再读取
+- 需要根据文件列表的结果决定下一步操作
+`

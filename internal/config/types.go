@@ -25,7 +25,8 @@ type StockConfig struct {
 
 // AgentConfig holds agent behavior configuration.
 type AgentConfig struct {
-	SystemPrompt string `mapstructure:"system_prompt"`
+	SystemPrompt      string `mapstructure:"system_prompt"`
+	StockSystemPrompt string `mapstructure:"stock_system_prompt"`
 }
 
 // MemoryConfig holds long-term memory configuration.

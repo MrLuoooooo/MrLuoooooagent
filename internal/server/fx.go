@@ -411,7 +411,7 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
-	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cpStore, retryGate)
+	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cfg.Agent.StockSystemPrompt, cpStore, retryGate)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
