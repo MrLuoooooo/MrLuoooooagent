@@ -214,7 +214,7 @@ func formatBOLL(prices []float64, period int, mult float64) string {
 	b.WriteString("|------|------|------|------|-------|\n")
 	tail := tail5(len(prices), r.Upper, r.Middle, r.Lower)
 	for _, item := range tail {
-		bandWidth := (item.v1 - item.v3) / item.v2 * 100
+		bandWidth := (item.v1 - item.v3) / (item.v2 + 0.0001) * 100
 		b.WriteString(fmt.Sprintf("| %d | %.2f | %.2f | %.2f | %.1f%% |\n", item.idx+1, item.v1, item.v2, item.v3, bandWidth))
 	}
 	if len(tail) > 0 {

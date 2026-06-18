@@ -11,30 +11,45 @@ type MACDResult struct {
 // 标准参数：fast=12, slow=26, signal=9。
 // 纯函数，无副作用。
 func MACD(prices []float64, fast, slow, signal int) *MACDResult {
-	if len(prices) == 0 || fast <= 0 || slow <= 0 || signal <= 0 {
-		return &MACDResult{}
+	n := len(prices)
+	maxPeriod := fast
+	if slow > maxPeriod { maxPeriod = slow }
+	if signal > maxPeriod { maxPeriod = signal }
+	nilResult := func() *MACDResult {
+		z := make([]float64, n)
+		return &MACDResult{DIFF: z, DEA: z, MACD: z}
+	}
+	if n == 0 || fast <= 0 || slow <= 0 || signal <= 0 || n <= maxPeriod {
+		return nilResult()
 	}
 	emaFast := EMA(prices, fast)
 	emaSlow := EMA(prices, slow)
-	maxIdx := maxPeriodIdx(len(prices), slow)
+	maxIdx := maxPeriodIdx(n, slow)
 
-	diff := make([]float64, len(prices))
-	for i := 0; i < len(prices); i++ {
+	diff := make([]float64, n)
+	for i := 0; i < n; i++ {
 		if i >= maxIdx {
 			diff[i] = emaFast[i] - emaSlow[i]
 		}
 	}
 
-	dea := EMA(diff[slow-1:], signal)
-	deaPadded := make([]float64, len(prices))
-	copyStart := slow - 1 + signal - 1
+	// slow-1 可能 >= n，加保护
+	deaStart := slow - 1
+	if deaStart >= n {
+		return nilResult()
+	}
+	dea := EMA(diff[deaStart:], signal)
+	deaPadded := make([]float64, n)
+	copyStart := deaStart + signal - 1
 	if copyStart < 0 {
 		copyStart = 0
 	}
-	copy(deaPadded[copyStart:], dea)
+	if copyStart < n {
+		copy(deaPadded[copyStart:], dea)
+	}
 
-	macdBar := make([]float64, len(prices))
-	for i := 0; i < len(prices); i++ {
+	macdBar := make([]float64, n)
+	for i := 0; i < n; i++ {
 		macdBar[i] = 2 * (diff[i] - deaPadded[i])
 	}
 
