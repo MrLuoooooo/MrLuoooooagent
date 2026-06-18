@@ -1,9 +1,10 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Bot, MessageSquare, FolderOpen, Puzzle, Shield, Layers, ChevronDown, Menu, X, type LucideIcon } from 'lucide-react'
+import { Bot, MessageSquare, FolderOpen, Puzzle, Shield, Layers, TrendingUp, ChevronDown, Menu, X, type LucideIcon } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
 const mainLinks = [
   { to: '/chat', label: '对话', icon: Bot },
+  { to: '/stock', label: '股票', icon: TrendingUp },
   { to: '/conversations', label: '会话', icon: MessageSquare },
   { to: '/documents', label: '文档', icon: FolderOpen },
 ]

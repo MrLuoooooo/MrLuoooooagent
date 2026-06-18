@@ -518,6 +518,10 @@ func ProvideDocHandler(svc *service.DocumentService, cfg *config.Config, logger 
 	return handler.NewDocumentHandler(svc, cfg, logger)
 }
 
+func ProvideStockHandler(collector *stock.Collector, db stockdb.StockDB, logger *zap.Logger) *handler.StockHandler {
+	return handler.NewStockHandler(collector, db, logger)
+}
+
 func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
 	rps := cfg.Server.RateLimitRPS
 	if rps <= 0 {
@@ -526,8 +530,8 @@ func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
 	return middleware.NewRateLimiter(rps, rps*2)
 }
 
-func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, fbH *handler.FeedbackHandler, rl *middleware.RateLimiter) *gin.Engine {
-	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, fbH, rl)
+func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, fbH *handler.FeedbackHandler, stockH *handler.StockHandler, rl *middleware.RateLimiter) *gin.Engine {
+	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, fbH, stockH, rl)
 }
 
 // ── Module ──
@@ -583,6 +587,7 @@ var Module = fx.Module("goagent",
 		ProvideChatHandler,
 		ProvideConvHandler,
 		ProvideDocHandler,
+		ProvideStockHandler,
 		ProvideRouter,
 	),
 	stockapi.Module,

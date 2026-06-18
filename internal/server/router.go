@@ -43,6 +43,7 @@ func NewRouter(
 	skillH *handler.SkillHandler,
 	wsH *handler.WorkspaceHandler,
 	fbH *handler.FeedbackHandler,
+	stockH *handler.StockHandler,
 	rl *middleware.RateLimiter,
 ) *gin.Engine {
 	engine := gin.New()
@@ -96,6 +97,12 @@ func NewRouter(
 		v1.GET("/workspace/dir", wsH.ListDir)
 		v1.GET("/workspace/tree", wsH.ListTree)
 		v1.POST("/feedback", fbH.SubmitFeedback)
+		v1.GET("/stock/kline", stockH.KLine)
+		v1.GET("/stock/realtime", stockH.Realtime)
+		v1.GET("/stock/search", stockH.Search)
+		v1.GET("/stock/watchlist", stockH.GetWatchlist)
+		v1.POST("/stock/watchlist", stockH.AddWatchlist)
+		v1.DELETE("/stock/watchlist/:code", stockH.RemoveWatchlist)
 	}
 
 	// SPA 静态文件服务（web/dist）

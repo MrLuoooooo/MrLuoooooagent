@@ -6,6 +6,7 @@ import DocumentPage from '../pages/DocumentPage'
 import SkillPage from '../pages/SkillPage'
 import ApprovalPage from '../pages/ApprovalPage'
 import BatchPage from '../pages/BatchPage'
+import StockPage from '../pages/StockPage'
 
 export const router = createBrowserRouter([
   {
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
       { path: 'chat', element: <ChatPage /> },
+      { path: 'stock', element: <StockPage /> },
       { path: 'conversations', element: <ConversationPage /> },
       { path: 'documents', element: <DocumentPage /> },
       { path: 'skills', element: <SkillPage /> },
