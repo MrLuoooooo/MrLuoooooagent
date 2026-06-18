@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	stockdb "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/db"
 )
 
 // ── Calculator ──────────────────────────────────────────
@@ -265,8 +267,24 @@ func TestWebFetchTool_EmptyURL(t *testing.T) {
 
 // ── StockSearchTool ─────────────────────────────────────
 
+// stubStockDB is a minimal StockDB for tests.
+type stubStockDB struct{}
+
+func (s *stubStockDB) Search(keyword string, limit int) ([]stockdb.StockBasic, error) {
+	if keyword == "茅台" {
+		return []stockdb.StockBasic{
+			{Code: "sh600519", Name: "贵州茅台", Industry: "白酒"},
+		}, nil
+	}
+	return nil, nil
+}
+func (s *stubStockDB) GetByCode(code string) (*stockdb.StockBasic, error) { return nil, nil }
+func (s *stubStockDB) List(filter stockdb.StockFilter) ([]stockdb.StockBasic, error) { return nil, nil }
+func (s *stubStockDB) Refresh() error { return nil }
+func (s *stubStockDB) Count() int { return 0 }
+
 func TestStockSearchTool_Found(t *testing.T) {
-	st := &StockSearchTool{}
+	st := NewStockSearchTool(&stubStockDB{})
 	args, _ := json.Marshal(map[string]string{"keyword": "茅台"})
 	result, err := st.InvokableRun(context.Background(), string(args))
 	if err != nil {
@@ -278,7 +296,7 @@ func TestStockSearchTool_Found(t *testing.T) {
 }
 
 func TestStockSearchTool_NotFound(t *testing.T) {
-	st := &StockSearchTool{}
+	st := NewStockSearchTool(&stubStockDB{})
 	args, _ := json.Marshal(map[string]string{"keyword": "这个股票不存在"})
 	result, err := st.InvokableRun(context.Background(), string(args))
 	if err != nil {
@@ -290,7 +308,7 @@ func TestStockSearchTool_NotFound(t *testing.T) {
 }
 
 func TestStockSearchTool_EmptyKeyword(t *testing.T) {
-	st := &StockSearchTool{}
+	st := NewStockSearchTool(&stubStockDB{})
 	args, _ := json.Marshal(map[string]string{"keyword": ""})
 	_, err := st.InvokableRun(context.Background(), string(args))
 	if err == nil {

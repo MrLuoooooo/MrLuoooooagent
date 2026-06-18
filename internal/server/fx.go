@@ -36,6 +36,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock"
 	stockapi "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/api"
 	stockcache "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/cache"
+	stockdb "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/db"
 	stockstore "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/storage"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"go.uber.org/fx"
@@ -333,7 +334,30 @@ func ProvideStockCollector(clients []stockapi.Client, cache *stockcache.MemoryCa
 	return stock.NewCollector(clients, cache, store, logger)
 }
 
-func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector) *ToolRegistry {
+func ProvideStockDB(cfg *config.Config, logger *zap.Logger) (stockdb.StockDB, error) {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	sdb, err := stockdb.NewSQLite(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	// 首次启动如果数据库为空，后台异步同步。
+	if sdb.Count() == 0 {
+		go func() {
+			logger.Info("stock db: 首次同步，拉取全市场股票列表...")
+			if err := sdb.Refresh(); err != nil {
+				logger.Error("stock db: 同步失败", zap.Error(err))
+			} else {
+				logger.Info("stock db: 同步完成", zap.Int("count", sdb.Count()))
+			}
+		}()
+	}
+	return sdb, nil
+}
+
+func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB) *ToolRegistry {
 	tool.Register(&tool.ReadFileTool{})
 	tool.Register(&tool.WriteFileTool{})
 	tool.Register(&tool.EditFileTool{})
@@ -355,10 +379,12 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(tool.NewStockKLineTool(collector))
 	tool.Register(tool.NewWebFetchTool(cfg.Search.Enabled))
 	tool.Register(&tool.CalculatorTool{})
-	tool.Register(&tool.StockSearchTool{})
+	tool.Register(tool.NewStockSearchTool(stockDB))
+	tool.Register(tool.NewStockListTool(stockDB))
 	tool.Register(&tool.StockIndexTool{})
 	tool.Register(&tool.JSONTool{})
 	tool.Register(&tool.TextTools{})
+	tool.Register(tool.NewIndicatorTool())
 	tool.Register(tool.NewBatchTool())
 	return &ToolRegistry{}
 }
@@ -514,6 +540,7 @@ var Module = fx.Module("goagent",
 		ProvideStockCache,
 		ProvideStockStore,
 		ProvideStockCollector,
+		ProvideStockDB,
 		ProvideRetryGate,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,

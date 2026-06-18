@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock/db"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
@@ -346,12 +347,19 @@ func formatNum(v float64) string {
 // Tool: stock_search — search stocks by keyword
 // ═══════════════════════════════════════════════════════════
 
-type StockSearchTool struct{}
+type StockSearchTool struct {
+	db db.StockDB
+}
+
+// NewStockSearchTool —
+func NewStockSearchTool(d db.StockDB) *StockSearchTool {
+	return &StockSearchTool{db: d}
+}
 
 func (t *StockSearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "stock_search",
-		Desc: "根据关键字搜索A股股票代码。输入公司名/行业/概念，返回匹配的股票列表。数据来自内置股票库。",
+		Desc: "根据关键字搜索A股股票代码。输入公司名/行业/概念，返回匹配的股票列表。数据来自全市场实时数据库。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"keyword": {
 				Type:     schema.String,
@@ -373,7 +381,10 @@ func (t *StockSearchTool) InvokableRun(ctx context.Context, argsJSON string, opt
 		return "", fmt.Errorf("stock_search: keyword 不能为空")
 	}
 
-	results := searchStockDB(args.Keyword)
+	results, err := t.db.Search(args.Keyword, 15)
+	if err != nil {
+		return fmt.Sprintf("搜索失败: %v", err), nil
+	}
 	if len(results) == 0 {
 		return fmt.Sprintf("未找到匹配 '%s' 的股票。尝试用更宽泛的关键词或已知代码。", args.Keyword), nil
 	}
@@ -382,72 +393,9 @@ func (t *StockSearchTool) InvokableRun(ctx context.Context, argsJSON string, opt
 	b.WriteString(fmt.Sprintf("## 搜索 '%s' (%d条结果)\n\n", args.Keyword, len(results)))
 	b.WriteString("| 代码 | 名称 | 行业 |\n|------|------|------|\n")
 	for _, r := range results {
-		b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", r.code, r.name, r.industry))
+		b.WriteString(fmt.Sprintf("| %s | %s | %s |\n", r.Code, r.Name, r.Industry))
 	}
 	return b.String(), nil
-}
-
-type stockEntry struct {
-	code, name, industry string
-}
-
-func searchStockDB(keyword string) []stockEntry {
-	kw := strings.ToLower(keyword)
-	var results []stockEntry
-	for _, s := range stockDB {
-		if strings.Contains(strings.ToLower(s.name), kw) || strings.Contains(strings.ToLower(s.code), kw) || strings.Contains(strings.ToLower(s.industry), kw) {
-			results = append(results, s)
-			if len(results) >= 15 {
-				break
-			}
-		}
-	}
-	return results
-}
-
-// Built-in stock database (common A-shares).
-var stockDB = []stockEntry{
-	{"sh600000", "浦发银行", "银行"},
-	{"sh600016", "民生银行", "银行"},
-	{"sh600036", "招商银行", "银行"},
-	{"sh601398", "工商银行", "银行"},
-	{"sh601939", "建设银行", "银行"},
-	{"sh600519", "贵州茅台", "白酒"},
-	{"sz000858", "五粮液", "白酒"},
-	{"sz000568", "泸州老窖", "白酒"},
-	{"sh600276", "恒瑞医药", "医药"},
-	{"sz300760", "迈瑞医疗", "医疗器械"},
-	{"sh600196", "复星医药", "医药"},
-	{"sz002415", "海康威视", "安防"},
-	{"sh600030", "中信证券", "券商"},
-	{"sz300059", "东方财富", "互联网金融"},
-	{"sh601318", "中国平安", "保险"},
-	{"sh601628", "中国人寿", "保险"},
-	{"sh600900", "长江电力", "电力"},
-	{"sh601985", "中国核电", "核电"},
-	{"sz300750", "宁德时代", "新能源电池"},
-	{"sz002594", "比亚迪", "新能源汽车"},
-	{"sh601012", "隆基绿能", "光伏"},
-	{"sz300274", "阳光电源", "光伏逆变器"},
-	{"sh600585", "海螺水泥", "建材"},
-	{"sh601668", "中国建筑", "建筑"},
-	{"sh600048", "保利发展", "房地产"},
-	{"sz000002", "万科A", "房地产"},
-	{"sh600809", "山西汾酒", "白酒"},
-	{"sz000001", "平安银行", "银行"},
-	{"sz000333", "美的集团", "家电"},
-	{"sz000651", "格力电器", "家电"},
-	{"sh601888", "中国中免", "免税"},
-	{"sh600809", "山西汾酒", "白酒"},
-	{"sz300124", "汇川技术", "工业自动化"},
-	{"sh603259", "药明康德", "医药外包"},
-	{"sh688981", "中芯国际", "半导体"},
-	{"sz002371", "北方华创", "半导体设备"},
-	{"sh600703", "三安光电", "LED芯片"},
-	{"sh601899", "紫金矿业", "有色金属"},
-	{"sz002460", "赣锋锂业", "锂矿"},
-	{"sh601111", "中国国航", "航空"},
-	{"sh600029", "南方航空", "航空"},
 }
 
 // ═══════════════════════════════════════════════════════════
