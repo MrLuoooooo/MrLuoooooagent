@@ -1,47 +1,46 @@
-package tool
+package indicator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/MrLuoooooo/MrLuoooooagent/internal/indicator"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
 
 // IndicatorTool 技术指标计算工具。
-// 纯调度层：参数解析 → 调用 indicator 纯函数 → 格式化输出。
-// 不依赖 DB/context/RPC，仅依赖 indicator 纯函数。
+// 纯调度层：参数解析 → 调用同包纯函数 → 格式化输出。
+// 不依赖 DB/context/RPC。
 type IndicatorTool struct{}
 
 // NewIndicatorTool —
 func NewIndicatorTool() *IndicatorTool { return &IndicatorTool{} }
 
-// indicatorArgs 实现 ArgsValidator。
+// indicatorArgs —
 type indicatorArgs struct {
 	Name   string    `json:"name"`
 	Prices []float64 `json:"prices"`
 	Period int       `json:"period"`
-	// 高级参数
-	Fast     int       `json:"fast"`     // MACD 快线周期，默认12
-	Slow     int       `json:"slow"`     // MACD 慢线周期，默认26
-	Signal   int       `json:"signal"`   // MACD 信号线周期，默认9
-	High     []float64 `json:"high"`     // KDJ/ATR 最高价
-	Low      []float64 `json:"low"`      // KDJ/ATR 最低价
-	Volumes  []float64 `json:"volumes"`  // OBV 成交量
-	Mult     float64   `json:"mult"`     // BOLL 乘数，默认2
+	Fast   int       `json:"fast"`
+	Slow   int       `json:"slow"`
+	Signal int       `json:"signal"`
+	High   []float64 `json:"high"`
+	Low    []float64 `json:"low"`
+	Volumes []float64 `json:"volumes"`
+	Mult   float64   `json:"mult"`
 }
 
-func (a indicatorArgs) Validate() error {
+func (a *indicatorArgs) parseAndValidate(argsJSON string) error {
+	if err := json.Unmarshal([]byte(argsJSON), a); err != nil {
+		return fmt.Errorf("calculate_indicator: %w", err)
+	}
 	if a.Name == "" {
 		return fmt.Errorf("name 不能为空，支持的指标: sma,ema,wma,macd,rsi,boll,kdj,atr,obv")
 	}
 	if len(a.Prices) == 0 && a.Name != "kdj" && a.Name != "atr" {
 		return fmt.Errorf("prices 不能为空")
-	}
-	if a.Period <= 0 {
-		a.Period = 20 // 默认周期
 	}
 	return nil
 }
@@ -66,63 +65,53 @@ func (t *IndicatorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 返回格式化的指标数值，含最近5个数据点的值。`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"name": {
-				Type:     schema.String,
-				Desc:     "指标名称: sma/ema/wma/macd/rsi/boll/kdj/atr/obv",
-				Required: true,
+				Type: schema.String, Required: true,
+				Desc: "指标名称: sma/ema/wma/macd/rsi/boll/kdj/atr/obv",
 			},
 			"prices": {
-				Type:     schema.Array,
-				Desc:     "收盘价序列，如 [25.3, 25.5, 25.1, ...]。SMA/EMA/WMA/MACD/RSI/BOLL/OBV 需要。",
-				Required: true,
+				Type: schema.Array, Required: true,
+				Desc: "收盘价序列，如 [25.3, 25.5, 25.1, ...]。SMA/EMA/WMA/MACD/RSI/BOLL/OBV 需要。",
 			},
 			"period": {
-				Type:     schema.Integer,
-				Desc:     "周期参数。sma/ema/wma 默认20，rsi 默认14，boll 默认20，kdj 默认9，atr 默认14。",
-				Required: false,
+				Type: schema.Integer, Required: false,
+				Desc: "周期参数。sma/ema/wma 默认20，rsi 默认14，boll 默认20，kdj 默认9，atr 默认14。",
 			},
 			"fast": {
-				Type:     schema.Integer,
-				Desc:     "MACD 快线周期，默认12",
-				Required: false,
+				Type: schema.Integer, Required: false,
+				Desc: "MACD 快线周期，默认12",
 			},
 			"slow": {
-				Type:     schema.Integer,
-				Desc:     "MACD 慢线周期，默认26",
-				Required: false,
+				Type: schema.Integer, Required: false,
+				Desc: "MACD 慢线周期，默认26",
 			},
 			"signal": {
-				Type:     schema.Integer,
-				Desc:     "MACD 信号线周期，默认9",
-				Required: false,
+				Type: schema.Integer, Required: false,
+				Desc: "MACD 信号线周期，默认9",
 			},
 			"high": {
-				Type:     schema.Array,
-				Desc:     "最高价序列，KDJ/ATR 需要",
-				Required: false,
+				Type: schema.Array, Required: false,
+				Desc: "最高价序列，KDJ/ATR 需要",
 			},
 			"low": {
-				Type:     schema.Array,
-				Desc:     "最低价序列，KDJ/ATR 需要",
-				Required: false,
+				Type: schema.Array, Required: false,
+				Desc: "最低价序列，KDJ/ATR 需要",
 			},
 			"volumes": {
-				Type:     schema.Array,
-				Desc:     "成交量序列，OBV 需要",
-				Required: false,
+				Type: schema.Array, Required: false,
+				Desc: "成交量序列，OBV 需要",
 			},
 			"mult": {
-				Type:     schema.Number,
-				Desc:     "BOLL 标准差乘数，默认2",
-				Required: false,
+				Type: schema.Number, Required: false,
+				Desc: "BOLL 标准差乘数，默认2",
 			},
 		}),
 	}, nil
 }
 
 func (t *IndicatorTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
-	args, err := ParseArgs[indicatorArgs](argsJSON)
-	if err != nil {
-		return "", fmt.Errorf("calculate_indicator: %w", err)
+	var args indicatorArgs
+	if err := args.parseAndValidate(argsJSON); err != nil {
+		return "", err
 	}
 
 	if args.Period <= 0 {
@@ -165,25 +154,25 @@ func (t *IndicatorTool) InvokableRun(ctx context.Context, argsJSON string, opts 
 	}
 }
 
-// ── 格式化 ────────────────────────────────────────
+// ── 格式化（调用同包纯函数，不再带 indicator. 前缀） ─
 
 func formatSMA(prices []float64, period int) string {
-	result := indicator.SMA(prices, period)
+	result := SMA(prices, period)
 	return format1D("SMA", period, result)
 }
 
 func formatEMA(prices []float64, period int) string {
-	result := indicator.EMA(prices, period)
+	result := EMA(prices, period)
 	return format1D("EMA", period, result)
 }
 
 func formatWMA(prices []float64, period int) string {
-	result := indicator.WMA(prices, period)
+	result := WMA(prices, period)
 	return format1D("WMA", period, result)
 }
 
 func formatMACD(prices []float64, fast, slow, signal int) string {
-	r := indicator.MACD(prices, fast, slow, signal)
+	r := MACD(prices, fast, slow, signal)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## MACD(%d,%d,%d)\n\n", fast, slow, signal))
 	b.WriteString("| 位置 | DIFF | DEA | MACD | 信号 |\n")
@@ -213,12 +202,12 @@ func formatMACD(prices []float64, fast, slow, signal int) string {
 }
 
 func formatRSI(prices []float64, period int) string {
-	result := indicator.RSI(prices, period)
+	result := RSI(prices, period)
 	return format1D("RSI", period, result)
 }
 
 func formatBOLL(prices []float64, period int, mult float64) string {
-	r := indicator.BOLL(prices, period, mult)
+	r := BOLL(prices, period, mult)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## BOLL(%d, %.1f)\n\n", period, mult))
 	b.WriteString("| 位置 | 上轨 | 中轨 | 下轨 | 带宽%% |\n")
@@ -238,7 +227,7 @@ func formatBOLL(prices []float64, period int, mult float64) string {
 }
 
 func formatKDJ(high, low, close []float64, period int) string {
-	r := indicator.KDJ(high, low, close, period)
+	r := KDJ(high, low, close, period)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("## KDJ(%d)\n\n", period))
 	b.WriteString("| 位置 | K | D | J | 区域 |\n")
@@ -261,12 +250,12 @@ func formatKDJ(high, low, close []float64, period int) string {
 }
 
 func formatATR(high, low, close []float64, period int) string {
-	result := indicator.ATR(high, low, close, period)
+	result := ATR(high, low, close, period)
 	return format1D("ATR", period, result)
 }
 
 func formatOBV(prices, volumes []float64) string {
-	result := indicator.OBV(prices, volumes)
+	result := OBV(prices, volumes)
 	if result == nil {
 		return "OBV 计算失败：prices 和 volumes 长度不一致或数据不足"
 	}
@@ -283,7 +272,6 @@ func formatOBV(prices, volumes []float64) string {
 // ── 内部工具 ──────────────────────────────────────
 
 type triple struct{ idx int; v1, v2, v3 float64 }
-type single struct{ idx int; v1 float64 }
 
 func tail5(n int, slices ...[]float64) []triple {
 	start := n - 5

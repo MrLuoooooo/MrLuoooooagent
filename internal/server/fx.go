@@ -27,6 +27,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/handler"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/indicator"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/logger"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/pipeline"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/prompt"
@@ -390,7 +391,7 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(&tool.StockIndexTool{})
 	tool.Register(&tool.JSONTool{})
 	tool.Register(&tool.TextTools{})
-	tool.Register(tool.NewIndicatorTool())
+	tool.Register(indicator.NewIndicatorTool())
 	tool.Register(tool.NewFinancialReportTool(emClient))
 	tool.Register(tool.NewBatchTool())
 	return &ToolRegistry{}

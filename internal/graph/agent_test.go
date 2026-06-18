@@ -149,3 +149,78 @@ func TestToolExecutionStrategy_Injected(t *testing.T) {
 	}
 }
 
+func TestStockModePromptSwitch(t *testing.T) {
+	inner := &fakeChatModel{
+		responses: []*schema.Message{
+			{Role: schema.Assistant, Content: "ok"},
+		},
+	}
+	cap := &capturingChatModel{wrapped: inner}
+
+	tn, err := compose.NewToolNode(context.Background(), &compose.ToolsNodeConfig{
+		Tools: []eino_tool.BaseTool{},
+	})
+	if err != nil {
+		t.Fatalf("create tool node: %v", err)
+	}
+
+	generalPrompt := "you are a general assistant."
+	stockPrompt := "you are a stock analysis specialist. Analyze using MACD/RSI/BOLL."
+
+	g, err := NewAgentGraph(cap, tn, nil, nil, nil, generalPrompt, stockPrompt, nil, NewRetryGate(0))
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	// 无 stock_mode → 通用 prompt
+	_, err = g.Invoke(context.Background(), &schema.Message{
+		Role: schema.User, Content: "hello",
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	for _, msg := range cap.messages {
+		if msg.Role == schema.System && !strings.Contains(msg.Content, generalPrompt) {
+			t.Errorf("without stock_mode, expected general prompt. got:\n%s", msg.Content)
+		}
+	}
+
+	// stock_mode=true → 股票 prompt
+	ctx := context.WithValue(context.Background(), "stock_mode", true)
+	_, err = g.Invoke(ctx, &schema.Message{
+		Role: schema.User, Content: "analyze this stock",
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	foundStock := false
+	for _, msg := range cap.messages {
+		if msg.Role == schema.System {
+			foundStock = true
+			if !strings.Contains(msg.Content, stockPrompt) {
+				t.Errorf("with stock_mode=true, expected stock prompt. got:\n%s", msg.Content)
+			}
+			if strings.Contains(msg.Content, generalPrompt) {
+				t.Errorf("with stock_mode=true, should NOT contain general prompt. got:\n%s", msg.Content)
+			}
+		}
+	}
+	if !foundStock {
+		t.Error("no system message with stock_mode")
+	}
+
+	// stock_mode=false → 通用 prompt
+	ctx = context.WithValue(context.Background(), "stock_mode", false)
+	_, err = g.Invoke(ctx, &schema.Message{
+		Role: schema.User, Content: "hello again",
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	for _, msg := range cap.messages {
+		if msg.Role == schema.System && !strings.Contains(msg.Content, generalPrompt) {
+			t.Errorf("with stock_mode=false, expected general prompt. got:\n%s", msg.Content)
+		}
+	}
+}
+
