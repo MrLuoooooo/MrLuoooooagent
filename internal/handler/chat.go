@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
@@ -130,7 +132,10 @@ func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID
 		h.logger.Error("save user message before stream", zap.String("conv_id", convID), zap.Error(err))
 	}
 
-	stream, err := h.svc.ChatStream(c.Request.Context(), req.Question)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer cancel()
+
+	stream, err := h.svc.ChatStream(ctx, req.Question)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
 		return
@@ -154,9 +159,13 @@ func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID
 
 func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
 	ctx := c.Request.Context()
+	// 请求级超时——Agent 最多跑 5 分钟
+	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	defer cancel()
 	// 股票专精模式：注入 context key，Agent Graph 读取后切换 prompt
 	if req.StockMode {
 		ctx = context.WithValue(ctx, graph.StockModeKey, true)
+		ctx = modelmanager.WithPriority(ctx, modelmanager.PrioStock)
 	}
 	// 用 Eino 内置 checkpoint：传入会话 ID 自动管理断点保存和恢复
 	cpOpt := compose.WithCheckPointID(convID)

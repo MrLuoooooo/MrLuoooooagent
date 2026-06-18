@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -27,13 +28,39 @@ type OpenAIChatModel struct {
 }
 
 // NewOpenAIChatModel 初始化一个 OpenAI 兼容 ChatModel。
+// transport 为 nil 时使用默认连接池 Transport。
 func NewOpenAIChatModel(apiKey, modelName, baseURL string, logger *zap.Logger) model.ChatModel {
+	return newOpenAIChatModel(apiKey, modelName, baseURL, logger, nil)
+}
+
+// NewOpenAIChatModelWithTransport 使用自定义 Transport 初始化。
+func NewOpenAIChatModelWithTransport(apiKey, modelName, baseURL string, logger *zap.Logger, transport *http.Transport) model.ChatModel {
+	return newOpenAIChatModel(apiKey, modelName, baseURL, logger, transport)
+}
+
+func newOpenAIChatModel(apiKey, modelName, baseURL string, logger *zap.Logger, transport *http.Transport) model.ChatModel {
+	if transport == nil {
+		transport = &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   20,
+			MaxConnsPerHost:       20,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+		}
+	}
 	return &OpenAIChatModel{
 		apiKey:  apiKey,
 		model:   modelName,
 		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Transport: transport,
+			Timeout:   120 * time.Second,
 		},
 		logger: logger,
 	}

@@ -204,7 +204,10 @@ func ProvideModelManager(resolved *ResolvedConfig, cfg *config.Config, customSto
 	return modelmanager.NewModelManager(initial, cfg, customStore, resolved.ChatModel, resolved.BaseURL, logger)
 }
 
-func ProvideChatModel(mm *modelmanager.ModelManager) model.ChatModel { return mm }
+func ProvideChatModel(mm *modelmanager.ModelManager, logger *zap.Logger) model.ChatModel {
+	// 高并发包装：信号量(20) + 令牌桶(10/s) + Circuit Breaker + 优先级
+	return modelmanager.NewHighConcurrencyManager(mm, 20, 10, logger)
+}
 
 func ProvideCheckpointStore(cfg *config.Config, logger *zap.Logger) (*store.CheckpointStore, error) {
 	dataDir := cfg.Stock.DataDir
