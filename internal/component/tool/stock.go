@@ -2,10 +2,12 @@ package tool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock"
+	stockapi "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/api"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
@@ -187,4 +189,81 @@ func (t *StockKLineTool) InvokableRun(ctx context.Context, argsJSON string, opts
 var (
 	_ tool.InvokableTool = (*StockRealtimeTool)(nil)
 	_ tool.InvokableTool = (*StockKLineTool)(nil)
+	_ tool.InvokableTool = (*FinancialReportTool)(nil)
 )
+
+// ═══════════════════════════════════════════════════════════
+// Tool: get_financial_report — 核心财务指标摘要
+// ═══════════════════════════════════════════════════════════
+
+// FinancialReportTool 获取个股核心财务指标。
+// 直接依赖 EastMoneyClient（不经过 Collector，财报不需要多源降级）。
+type FinancialReportTool struct {
+	client *stockapi.EastMoneyClient
+}
+
+// NewFinancialReportTool —
+func NewFinancialReportTool(client *stockapi.EastMoneyClient) *FinancialReportTool {
+	return &FinancialReportTool{client: client}
+}
+
+func (t *FinancialReportTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: "get_financial_report",
+		Desc: `获取A股核心财务指标摘要。数据来源于东方财富。
+
+返回指标：
+- PE(动态市盈率) / PB(市净率) — 估值指标
+- ROE(净资产收益率) / EPS(每股收益) — 盈利指标
+- 毛利率 / 净利率 — 盈利质量
+- 每股净资产 / 每股经营现金流 — 资产质量
+- 营收/净利及同比增速 — 成长性`,
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"code": {
+				Type:     schema.String,
+				Desc:     "股票代码，如 sh600519",
+				Required: true,
+			},
+		}),
+	}, nil
+}
+
+func (t *FinancialReportTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
+	var args struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("get_financial_report: %w", err)
+	}
+	if args.Code == "" {
+		return "", fmt.Errorf("get_financial_report: code 不能为空")
+	}
+
+	data, err := t.client.GetFinancialData(ctx, args.Code)
+	if err != nil {
+		return fmt.Sprintf("财务数据暂不可用 (%s): %v", args.Code, err), nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## 财务指标 %s %s\n\n", data.Name, data.Code))
+	b.WriteString("### 估值指标\n")
+	b.WriteString(fmt.Sprintf("- 动态市盈率(PE): %.2f\n", data.PE))
+	b.WriteString(fmt.Sprintf("- 市净率(PB): %.2f\n\n", data.PB))
+
+	b.WriteString("### 盈利能力\n")
+	b.WriteString(fmt.Sprintf("- 净资产收益率(ROE): %.2f%%\n", data.ROE))
+	b.WriteString(fmt.Sprintf("- 基本每股收益(EPS): %.4f\n", data.EPS))
+	b.WriteString(fmt.Sprintf("- 毛利率: %.2f%%\n", data.GrossMargin))
+	b.WriteString(fmt.Sprintf("- 净利率: %.2f%%\n\n", data.NetMargin))
+
+	b.WriteString("### 成长性\n")
+	b.WriteString(fmt.Sprintf("- 营业总收入: %.2f亿  |  同比: %.2f%%\n", data.Revenue, data.RevenueYoY))
+	b.WriteString(fmt.Sprintf("- 归属净利润: %.2f亿  |  同比: %.2f%%\n\n", data.NetProfit, data.ProfitYoY))
+
+	b.WriteString("### 资产质量\n")
+	b.WriteString(fmt.Sprintf("- 每股净资产: %.2f\n", data.BPS))
+	b.WriteString(fmt.Sprintf("- 每股经营现金流: %.4f\n\n", data.CFPS))
+
+	b.WriteString(fmt.Sprintf("> 数据来源: %s  |  以上数据为最新财报期\n", data.Source))
+	return b.String(), nil
+}

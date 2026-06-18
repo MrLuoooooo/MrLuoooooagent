@@ -357,7 +357,13 @@ func ProvideStockDB(cfg *config.Config, logger *zap.Logger) (stockdb.StockDB, er
 	return sdb, nil
 }
 
-func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB) *ToolRegistry {
+// ProvideEastMoneyClient 为财报工具提供独立的东方财富 API 客户端。
+func ProvideEastMoneyClient(logger *zap.Logger) *stockapi.EastMoneyClient {
+	base := stockapi.NewBaseClient(logger)
+	return stockapi.NewEastMoneyClient(base, "http://push2.eastmoney.com/api/qt/stock/get")
+}
+
+func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB, emClient *stockapi.EastMoneyClient) *ToolRegistry {
 	tool.Register(&tool.ReadFileTool{})
 	tool.Register(&tool.WriteFileTool{})
 	tool.Register(&tool.EditFileTool{})
@@ -385,6 +391,7 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(&tool.JSONTool{})
 	tool.Register(&tool.TextTools{})
 	tool.Register(tool.NewIndicatorTool())
+	tool.Register(tool.NewFinancialReportTool(emClient))
 	tool.Register(tool.NewBatchTool())
 	return &ToolRegistry{}
 }
@@ -541,6 +548,7 @@ var Module = fx.Module("goagent",
 		ProvideStockStore,
 		ProvideStockCollector,
 		ProvideStockDB,
+		ProvideEastMoneyClient,
 		ProvideRetryGate,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,
