@@ -220,3 +220,74 @@ func eastPeriod(p string) string {
 	default: return "101"
 	}
 }
+
+// NewsItem 单条新闻。
+type NewsItem struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Date  string `json:"date"`
+}
+
+// GetNews 获取个股最新新闻标题列表（最多10条）。
+func (c *EastMoneyClient) GetNews(ctx context.Context, code string) ([]NewsItem, error) {
+	secid := toSecID(code)
+	url := fmt.Sprintf("http://push2.eastmoney.com/api/qt/stock/get?secid=%s&fields=f12,f14,f271,f272,f273,f274,f275,f276&ut=fa5fd1943c7b386f172d6893dbfba10b", secid)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("Referer", "https://quote.eastmoney.com/")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return c.parseNews(body)
+}
+
+func (c *EastMoneyClient) parseNews(data []byte) ([]NewsItem, error) {
+	var resp struct {
+		Data struct {
+			F271 string `json:"f271"` // 新闻标题（逗号分隔）
+			F272 string `json:"f272"` // 新闻URL
+			F273 string `json:"f273"` // 公告标题
+			F274 string `json:"f274"` // 公告URL
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("parse news: %w", err)
+	}
+
+	var items []NewsItem
+	addSplit := func(titles, urls string, prefix string) {
+		t := strings.Split(titles, ",")
+		u := strings.Split(urls, ",")
+		for i, title := range t {
+			title = strings.TrimSpace(title)
+			if title == "" || title == "-" {
+				continue
+			}
+			item := NewsItem{Title: prefix + title}
+			if i < len(u) {
+				item.URL = strings.TrimSpace(u[i])
+			}
+			items = append(items, item)
+			if len(items) >= 10 {
+				return
+			}
+		}
+	}
+
+	addSplit(resp.Data.F271, resp.Data.F272, "[新闻] ")
+	if len(items) < 10 {
+		addSplit(resp.Data.F273, resp.Data.F274, "[公告] ")
+	}
+	return items, nil
+}

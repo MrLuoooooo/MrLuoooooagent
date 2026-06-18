@@ -16,6 +16,7 @@ type Config struct {
 	Stock         StockConfig         `mapstructure:"stock"`
 	Agent         AgentConfig         `mapstructure:"agent"`
 	Memory        MemoryConfig        `mapstructure:"memory"`
+	Alert         AlertConfig         `mapstructure:"alert"`
 }
 
 // StockConfig holds stock data middleware configuration.
@@ -33,6 +34,13 @@ type AgentConfig struct {
 type MemoryConfig struct {
 	Enabled       bool `mapstructure:"enabled"`
 	RetrievalTopK int  `mapstructure:"retrieval_top_k"`
+}
+
+// AlertConfig holds intraday alert configuration.
+type AlertConfig struct {
+	Enabled        bool     `mapstructure:"enabled"`
+	Watchlist      []string `mapstructure:"watchlist"`
+	PriceChangePct float64  `mapstructure:"price_change_pct"`
 }
 
 // AuthConfig holds authentication configuration.

@@ -176,3 +176,13 @@ cron:
       cron_expr: "0 30 15 * * 1-5"
       prompt: "使用 get_stock_realtime 和 get_stock_kline 工具对 sh600519 和 sz000001 进行收盘分析，包含技术面和资金面，按模板输出分析报告。"
       auto_approve: false
+    - name: "intraday_alert"
+      cron_expr: "*/5 * * * * 1-5"
+      prompt: "检查自选股（sh600519,sz000001）当前行情，涨跌幅超过5%的立即做异动分析并生成预警。"
+      auto_approve: true
+alert:
+  enabled: true
+  watchlist:
+    - sh600519
+    - sz000001
+  price_change_pct: 5

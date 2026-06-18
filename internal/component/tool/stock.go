@@ -267,3 +267,70 @@ func (t *FinancialReportTool) InvokableRun(ctx context.Context, argsJSON string,
 	b.WriteString(fmt.Sprintf("> 数据来源: %s  |  以上数据为最新财报期\n", data.Source))
 	return b.String(), nil
 }
+
+// ═══════════════════════════════════════════════════════════
+// Tool: get_market_news — 市场资讯
+// ═══════════════════════════════════════════════════════════
+
+// MarketNewsTool 获取个股相关新闻和公告。
+type MarketNewsTool struct {
+	client *stockapi.EastMoneyClient
+}
+
+// NewMarketNewsTool —
+func NewMarketNewsTool(client *stockapi.EastMoneyClient) *MarketNewsTool {
+	return &MarketNewsTool{client: client}
+}
+
+func (t *MarketNewsTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: "get_market_news",
+		Desc: `获取个股最新相关新闻标题和公告。数据来自东方财富。
+
+返回内容包括：
+- 新闻标题 + URL（可配合 web_fetch 查看详情）
+- 公告标题 + URL
+
+最多返回10条。`,
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"code": {
+				Type:     schema.String,
+				Desc:     "股票代码，如 sh600519",
+				Required: true,
+			},
+		}),
+	}, nil
+}
+
+func (t *MarketNewsTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
+	var args struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("get_market_news: %w", err)
+	}
+	if args.Code == "" {
+		return "", fmt.Errorf("get_market_news: code 不能为空")
+	}
+
+	items, err := t.client.GetNews(ctx, args.Code)
+	if err != nil {
+		return fmt.Sprintf("资讯获取失败 (%s): %v", args.Code, err), nil
+	}
+	if len(items) == 0 {
+		return fmt.Sprintf("%s 暂无最新相关资讯。", args.Code), nil
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("## 市场资讯 %s (%d条)\n\n", args.Code, len(items)))
+	for i, item := range items {
+		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Title))
+		if item.URL != "" {
+			b.WriteString(fmt.Sprintf("   链接: %s\n", item.URL))
+		}
+	}
+	b.WriteString(fmt.Sprintf("\n> 数据来源: 东方财富  |  如需查看全文请使用 web_fetch 工具\n"))
+	return b.String(), nil
+}
+
+var _ tool.InvokableTool = (*MarketNewsTool)(nil)

@@ -28,6 +28,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/handler"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/indicator"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/alert"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/logger"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/pipeline"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/prompt"
@@ -358,7 +359,12 @@ func ProvideStockDB(cfg *config.Config, logger *zap.Logger) (stockdb.StockDB, er
 	return sdb, nil
 }
 
-// ProvideEastMoneyClient 为财报工具提供独立的东方财富 API 客户端。
+// ProvideAlertService 创建盘中异动预警服务。
+func ProvideAlertService(cfg *config.Config, collector *stock.Collector, logger *zap.Logger) *alert.AlertService {
+	return alert.NewAlertService(collector, cfg.Alert.Watchlist, cfg.Alert.PriceChangePct, logger)
+}
+
+// ProvideEastMoneyClient 为财报/资讯工具提供独立的东方财富 API 客户端。
 func ProvideEastMoneyClient(logger *zap.Logger) *stockapi.EastMoneyClient {
 	base := stockapi.NewBaseClient(logger)
 	return stockapi.NewEastMoneyClient(base, "http://push2.eastmoney.com/api/qt/stock/get")
@@ -394,6 +400,7 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(&tool.TextTools{})
 	tool.Register(indicator.NewIndicatorTool())
 	tool.Register(tool.NewFinancialReportTool(emClient))
+	tool.Register(tool.NewMarketNewsTool(emClient))
 	tool.Register(tool.NewBacktestTool(collector))
 	tool.Register(tool.NewBatchTool())
 	return &ToolRegistry{}
@@ -552,6 +559,7 @@ var Module = fx.Module("goagent",
 		ProvideStockCollector,
 		ProvideStockDB,
 		ProvideEastMoneyClient,
+		ProvideAlertService,
 		ProvideRetryGate,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,
