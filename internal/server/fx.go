@@ -388,11 +388,13 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(&tool.CalculatorTool{})
 	tool.Register(tool.NewStockSearchTool(stockDB))
 	tool.Register(tool.NewStockListTool(stockDB))
+	tool.Register(tool.NewScreenStocksTool(stockDB))
 	tool.Register(&tool.StockIndexTool{})
 	tool.Register(&tool.JSONTool{})
 	tool.Register(&tool.TextTools{})
 	tool.Register(indicator.NewIndicatorTool())
 	tool.Register(tool.NewFinancialReportTool(emClient))
+	tool.Register(tool.NewBacktestTool(collector))
 	tool.Register(tool.NewBatchTool())
 	return &ToolRegistry{}
 }
