@@ -6,7 +6,7 @@ export interface ChatRequest {
 }
 
 export interface StreamEvent {
-  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id'
+  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id' | 'waiting'
   content?: string
   tool?: string
   tool_name?: string

@@ -38,4 +38,5 @@ const (
 	EventDone            = "done"
 	EventError           = "error"
 	EventConversationID  = "conversation_id"
+	EventWaiting         = "waiting"     // 排队等待中，content 含排队信息
 )

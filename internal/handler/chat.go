@@ -166,9 +166,6 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 	if req.StockMode {
 		ctx = context.WithValue(ctx, graph.StockModeKey, true)
 		ctx = modelmanager.WithPriority(ctx, modelmanager.PrioStock)
-	} else {
-		// 通用对话走本地 Ollama 快速通道，不占 API 配额
-		ctx = context.WithValue(ctx, modelmanager.UseLocalKey, true)
 	}
 	// 用 Eino 内置 checkpoint：传入会话 ID 自动管理断点保存和恢复
 	cpOpt := compose.WithCheckPointID(convID)
@@ -179,46 +176,83 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		}
 
 		userMsg := &schema.Message{Role: schema.User, Content: req.Question}
-		stream, err := h.svc.AgentStream(ctx, userMsg, cpOpt)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, model.Err(500, err.Error()))
-			return
+		prio := 2 // 默认普通优先级
+		if req.StockMode {
+			prio = 1
 		}
-		defer stream.Close()
+
+		// 产品级排队：永远不拒绝，入队即返回排队状态
+		qReq := &service.QueuedRequest{
+			ConvID:   convID,
+			UserMsg:  userMsg,
+			Question: req.Question,
+			Priority: prio,
+			Ctx:      ctx,
+		}
+		qr := h.svc.QueueSubmit(qReq)
 
 		h.setupSSE(c)
 
+		// 排队状态 → 推前端等待提示
+		if qr.NodeID == "queued" {
+			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %d 人，请稍候...", h.svc.PendingCount())})
+		}
+		if qr.NodeID == "coalesced" {
+			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: "类似问题正在处理..."})
+		}
+
+		// qReq.ResultCh 由 Submit 保证非 nil
 		var full string
 		var toolCalls []schema.ToolCall
 		seenTools := make(map[string]bool)
 
-		h.streamSSE(c, convID, stream, func(chunk *schema.Message) *model.StreamEvent {
-			for _, tc := range chunk.ToolCalls {
-				if !seenTools[tc.ID] {
-					seenTools[tc.ID] = true
+		// 从队列结果通道读取，可能包含 position 更新、token 和最终结果
+		for result := range qReq.ResultCh {
+			if result.NodeID == "position" {
+				// 队列位置更新
+				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %s 人", result.Err.Error())})
+				continue
+			}
+			if result.NodeID == "error" {
+				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventError, Content: result.Err.Error()})
+				return
+			}
+			if result.Stream == nil {
+				continue
+			}
+
+			// 读取流式 token
+			for {
+				chunk, recvErr := result.Stream.Recv()
+				if recvErr != nil {
+					break
+				}
+				for _, tc := range chunk.ToolCalls {
+					if !seenTools[tc.ID] {
+						seenTools[tc.ID] = true
+						h.writeSSEEvent(c.Writer, model.StreamEvent{
+							Type:     model.EventToolCall,
+							Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
+							ToolName: tc.Function.Name,
+							ToolArgs: tc.Function.Arguments,
+						})
+					}
+				}
+				if chunk.Role == schema.Tool {
 					h.writeSSEEvent(c.Writer, model.StreamEvent{
-						Type:     model.EventToolCall,
-						Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
-						ToolName: tc.Function.Name,
-						ToolArgs: tc.Function.Arguments,
+						Type:    model.EventToolResult,
+						Content: toWindowsPath(chunk.Content),
 					})
+					continue
 				}
-			}
-
-			if chunk.Role == schema.Tool {
-				content := toWindowsPath(chunk.Content)
-				return &model.StreamEvent{
-					Type:    model.EventToolResult,
-					Content: content,
+				full += chunk.Content
+				if len(chunk.ToolCalls) > 0 {
+					toolCalls = chunk.ToolCalls
 				}
+				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventToken, Content: stripToolCode(chunk.Content)})
 			}
-
-			full += chunk.Content
-			if len(chunk.ToolCalls) > 0 {
-				toolCalls = chunk.ToolCalls
-			}
-			return &model.StreamEvent{Type: model.EventToken, Content: stripToolCode(chunk.Content)}
-		})
+			result.Stream.Close()
+		}
 
 		if full != "" {
 			if err := h.svc.SaveAssistantMessage(convID, full, toolCalls); err != nil {

@@ -25,7 +25,8 @@ type ChatService struct {
 	memorySvc     *MemoryService
 	feedbackSvc   *FeedbackService
 	confidenceSvc *ConfidenceService
-	summaryCache  sync.Map // convID → summary string，异步摘要缓存
+	summaryCache  sync.Map
+	reqQueue      *RequestQueue // 产品级排队系统
 	logger        *zap.Logger
 }
 
@@ -39,15 +40,19 @@ func NewChatService(
 	confidenceSvc *ConfidenceService,
 	logger *zap.Logger,
 ) *ChatService {
-	return &ChatService{
+	svc := &ChatService{
 		ragChain:      ragChain,
 		agentGraph:    agentGraph,
 		persister:     persister,
 		memorySvc:     memorySvc,
 		feedbackSvc:   feedbackSvc,
 		confidenceSvc: confidenceSvc,
+		reqQueue:      NewRequestQueue(logger),
 		logger:        logger,
 	}
+	// 启动调度 goroutine
+	go svc.reqQueue.DrainAndDispatch(context.Background(), agentGraph)
+	return svc
 }
 
 // Chat 走 RAG 链，回答完自动写 ES。
@@ -129,6 +134,17 @@ func (s *ChatService) AgentStream(ctx context.Context, msg *schema.Message, opts
 		return nil, err
 	}
 	return stream, nil
+}
+
+// QueueSubmit 提交请求到产品级排队系统，返回结果通道。
+// 永远不拒绝——入队即返回排队状态。
+func (s *ChatService) QueueSubmit(req *QueuedRequest) *QueueResult {
+	return s.reqQueue.Submit(req)
+}
+
+// PendingCount 当前排队人数。
+func (s *ChatService) PendingCount() int {
+	return s.reqQueue.PendingCount()
 }
 
 // SummarizeHistory 对超出 maxKeep 的旧对话做摘要压缩。

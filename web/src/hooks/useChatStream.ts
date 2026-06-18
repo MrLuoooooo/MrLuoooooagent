@@ -128,6 +128,19 @@ export function useChatStream(): UseChatStreamReturn {
             setStatus('idle')
             break
 
+          case 'waiting':
+            // 排队进度：在最后一条 assistant 消息中显示排队信息
+            setMessages((prev) => {
+              if (prev.length === 0) return prev
+              const lastIdx = prev.length - 1
+              return prev.map((msg, i) =>
+                i === lastIdx && msg.role === 'assistant'
+                  ? { ...msg, content: '⏳ ' + (evt.content ?? '排队中...') }
+                  : msg,
+              )
+            })
+            break
+
           case 'error':
             if (streamIdRef.current !== sid) return
             setError(evt.content ?? '未知错误')
