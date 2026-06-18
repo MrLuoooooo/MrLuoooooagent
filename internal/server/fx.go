@@ -599,4 +599,16 @@ var Module = fx.Module("goagent",
 	fx.Invoke(func(bp *pipeline.BatchPipeline) {
 		tool.SetBatchPipeline(bp)
 	}),
+	// 注入本地 Ollama 模型到高并发管理器的快速通道
+	fx.Invoke(func(cm model.ChatModel, cfg *config.Config) {
+		if hcm, ok := cm.(*modelmanager.HighConcurrencyManager); ok && cfg.ModelProvider.Local.Enabled {
+			local := openaimodel.NewOpenAIChatModel(
+				"",
+				cfg.ModelProvider.Local.ChatModel,
+				cfg.ModelProvider.Local.BaseURL,
+				zap.NewNop(),
+			)
+			hcm.SetLocalModel(local)
+		}
+	}),
 )

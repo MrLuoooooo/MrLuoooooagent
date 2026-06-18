@@ -56,7 +56,7 @@ services:
       dockerfile: web/Dockerfile
     container_name: goagent-web
     ports:
-      - "8081:80"
+      - "8082:80"
     depends_on:
       app:
         condition: service_healthy

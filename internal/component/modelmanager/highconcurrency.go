@@ -27,6 +27,10 @@ type prioKey struct{}
 
 var prioContextKey prioKey
 
+// UseLocalKey 设置后走本地 Ollama 快速通道，不排队不限流。
+type useLocalKey struct{}
+var UseLocalKey useLocalKey
+
 // WithPriority 将优先级注入 context。
 func WithPriority(ctx context.Context, p Priority) context.Context {
 	return context.WithValue(ctx, prioContextKey, p)
@@ -34,17 +38,19 @@ func WithPriority(ctx context.Context, p Priority) context.Context {
 
 // HighConcurrencyManager 包装 ModelManager，提供高并发下的四层保护：
 // 1. 信号量限制并发 LLM 请求数 (max 20)
-// 2. 令牌桶限制发送速率 (10 QPS, burst 1)
+// 2. 令牌桶限制发送速率 (10 QPS, burst 2)
 // 3. 优先级队列（预警 > 股票 > 普通）
 // 4. Circuit Breaker 熔断（连续5次失败 → 熔断30s → 半开探测）
+// 5. 本地模型快速通道：ctx 含 UseLocalKey 时跳速率限制直连 Ollama
 type HighConcurrencyManager struct {
-	underlying model.ChatModel // *ModelManager
+	underlying model.ChatModel // *ModelManager (DeepSeek)
 	sema       chan struct{}   // 信号量
 	limiter    *rate.Limiter
 	breaker    *gobreaker.CircuitBreaker
 	logger     *zap.Logger
 	inflight   atomic.Int32
 	rejected   atomic.Int64 // 被拒绝总数
+	fastModel  model.ChatModel // 本地 Ollama 快速通道 (nil=不可用)
 }
 
 // NewHighConcurrencyManager 创建高并发包装器。
@@ -54,7 +60,7 @@ func NewHighConcurrencyManager(underlying model.ChatModel, maxConcurrent, qps in
 	m := &HighConcurrencyManager{
 		underlying: underlying,
 		sema:       make(chan struct{}, maxConcurrent),
-		limiter:    rate.NewLimiter(rate.Limit(qps), 1),
+		limiter:    rate.NewLimiter(rate.Limit(qps), 2),
 		logger:     logger,
 	}
 	m.breaker = gobreaker.NewCircuitBreaker(gobreaker.Settings{
@@ -76,8 +82,17 @@ func NewHighConcurrencyManager(underlying model.ChatModel, maxConcurrent, qps in
 	return m
 }
 
+// SetLocalModel 设置本地模型快速通道。
+func (m *HighConcurrencyManager) SetLocalModel(local model.ChatModel) {
+	m.fastModel = local
+}
+
 // Generate 非流式调用，经四层保护。
+// 若 ctx 含 UseLocalKey 且本地模型可用，走快速通道不排队。
 func (m *HighConcurrencyManager) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
+	if _, bypass := ctx.Value(UseLocalKey).(bool); bypass && m.fastModel != nil {
+		return m.fastModel.Generate(ctx, input, opts...)
+	}
 	if err := m.admit(ctx); err != nil {
 		return nil, err
 	}
@@ -94,6 +109,9 @@ func (m *HighConcurrencyManager) Generate(ctx context.Context, input []*schema.M
 
 // Stream 流式调用，经四层保护。
 func (m *HighConcurrencyManager) Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error) {
+	if _, bypass := ctx.Value(UseLocalKey).(bool); bypass && m.fastModel != nil {
+		return m.fastModel.Stream(ctx, input, opts...)
+	}
 	if err := m.admit(ctx); err != nil {
 		return nil, err
 	}

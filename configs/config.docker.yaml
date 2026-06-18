@@ -60,6 +60,20 @@ conversation:
   storage_type: "es"
 agent:
   system_prompt: "You are GoAgent Pro. When user asks to write/create a file, call write_file(path=\"filename\", content=\"...\") immediately. Do not read existing files first. Reply in Chinese after tool completion."
+  stock_system_prompt: |
+    你是 GoAgent Pro 股票专精模式，专注于 A 股技术分析与基本面研究。分析框架：大势→行业→个股。每个数据点标注来源和时间。必须附风险声明。
+memory:
+  enabled: false
+  retrieval_top_k: 5
+stock:
+  data_dir: "/app/data/stocks"
+cron:
+  enabled: false
+  jobs: []
+alert:
+  enabled: false
+  watchlist: []
+  price_change_pct: 5
 log:
   level: "info"
   file_path: "/var/log/goagent/app.log"

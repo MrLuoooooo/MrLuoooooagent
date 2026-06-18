@@ -159,13 +159,16 @@ func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID
 
 func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
 	ctx := c.Request.Context()
-	// 请求级超时——Agent 最多跑 5 分钟
-	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
+	// 请求级超时——从进入到回复完成，2 分钟封顶
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	// 股票专精模式：注入 context key，Agent Graph 读取后切换 prompt
 	if req.StockMode {
 		ctx = context.WithValue(ctx, graph.StockModeKey, true)
 		ctx = modelmanager.WithPriority(ctx, modelmanager.PrioStock)
+	} else {
+		// 通用对话走本地 Ollama 快速通道，不占 API 配额
+		ctx = context.WithValue(ctx, modelmanager.UseLocalKey, true)
 	}
 	// 用 Eino 内置 checkpoint：传入会话 ID 自动管理断点保存和恢复
 	cpOpt := compose.WithCheckPointID(convID)
