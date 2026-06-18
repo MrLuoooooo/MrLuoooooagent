@@ -83,7 +83,7 @@ func (s *SQLiteStockDB) Search(keyword string, limit int) ([]StockBasic, error) 
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.Query(
-		`SELECT code, name, industry FROM stocks
+		`SELECT code, name, industry, market_cap, pe, pb FROM stocks
 		 WHERE code LIKE ? OR name LIKE ? OR industry LIKE ?
 		 ORDER BY market_cap DESC
 		 LIMIT ?`,
@@ -97,7 +97,7 @@ func (s *SQLiteStockDB) Search(keyword string, limit int) ([]StockBasic, error) 
 	var result []StockBasic
 	for rows.Next() {
 		var r StockBasic
-		if err := rows.Scan(&r.Code, &r.Name, &r.Industry); err != nil {
+		if err := rows.Scan(&r.Code, &r.Name, &r.Industry, &r.MarketCap, &r.PE, &r.PB); err != nil {
 			return nil, err
 		}
 		result = append(result, r)

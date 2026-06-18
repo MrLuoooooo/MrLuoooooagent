@@ -39,6 +39,9 @@ func (c *EastMoneyClient) GetStockData(ctx context.Context, code string) (*Stock
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, c.GetName())
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -96,6 +99,9 @@ func (c *EastMoneyClient) GetKLineData(ctx context.Context, code, period string,
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("eastmoney HTTP %d for K-line %s", resp.StatusCode, code)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -120,6 +126,9 @@ func (c *EastMoneyClient) GetFinancialData(ctx context.Context, code string) (*F
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("eastmoney HTTP %d for financial %s", resp.StatusCode, code)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -244,6 +253,9 @@ func (c *EastMoneyClient) GetNews(ctx context.Context, code string) ([]NewsItem,
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("eastmoney HTTP %d for news %s", resp.StatusCode, code)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

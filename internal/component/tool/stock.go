@@ -2,7 +2,6 @@ package tool
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -228,15 +227,22 @@ func (t *FinancialReportTool) Info(ctx context.Context) (*schema.ToolInfo, error
 	}, nil
 }
 
+// financialReportArgs 实现 ArgsValidator。
+type financialReportArgs struct {
+	Code string `json:"code"`
+}
+
+func (a financialReportArgs) Validate() error {
+	if a.Code == "" {
+		return fmt.Errorf("code 不能为空")
+	}
+	return nil
+}
+
 func (t *FinancialReportTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
-	var args struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+	args, err := ParseArgs[financialReportArgs](argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("get_financial_report: %w", err)
-	}
-	if args.Code == "" {
-		return "", fmt.Errorf("get_financial_report: code 不能为空")
 	}
 
 	data, err := t.client.GetFinancialData(ctx, args.Code)
@@ -302,15 +308,22 @@ func (t *MarketNewsTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
+// marketNewsArgs 实现 ArgsValidator。
+type marketNewsArgs struct {
+	Code string `json:"code"`
+}
+
+func (a marketNewsArgs) Validate() error {
+	if a.Code == "" {
+		return fmt.Errorf("code 不能为空")
+	}
+	return nil
+}
+
 func (t *MarketNewsTool) InvokableRun(ctx context.Context, argsJSON string, opts ...tool.Option) (string, error) {
-	var args struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+	args, err := ParseArgs[marketNewsArgs](argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("get_market_news: %w", err)
-	}
-	if args.Code == "" {
-		return "", fmt.Errorf("get_market_news: code 不能为空")
 	}
 
 	items, err := t.client.GetNews(ctx, args.Code)

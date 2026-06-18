@@ -19,10 +19,10 @@ func (s *testStrategy) Evaluate(ctx BacktestContext) Signal {
 		return Signal{Action: Hold}
 	}
 	// 简易均线交叉
-	shortMA := sma(ctx.History, s.shortPeriod)
-	longMA := sma(ctx.History, s.longPeriod)
-	prevShort := sma(ctx.History[:len(ctx.History)-1], s.shortPeriod)
-	prevLong := sma(ctx.History[:len(ctx.History)-1], s.longPeriod)
+	shortMA := BarSMA(ctx.History, s.shortPeriod)
+	longMA := BarSMA(ctx.History, s.longPeriod)
+	prevShort := BarSMA(ctx.History[:len(ctx.History)-1], s.shortPeriod)
+	prevLong := BarSMA(ctx.History[:len(ctx.History)-1], s.longPeriod)
 
 	if prevShort <= prevLong && shortMA > longMA {
 		s.crossedUp = true
@@ -34,17 +34,6 @@ func (s *testStrategy) Evaluate(ctx BacktestContext) Signal {
 		return Signal{Action: Sell, Quantity: 1.0, Reason: "死叉"}
 	}
 	return Signal{Action: Hold}
-}
-
-func sma(bars []Bar, period int) float64 {
-	if len(bars) < period {
-		return bars[len(bars)-1].Close
-	}
-	sum := 0.0
-	for i := len(bars) - period; i < len(bars); i++ {
-		sum += bars[i].Close
-	}
-	return sum / float64(period)
 }
 
 func makeTrendBars(n int, trend float64) []Bar {

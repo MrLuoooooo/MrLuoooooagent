@@ -122,7 +122,7 @@ func buildReport(initial, final, totalReturn float64, dailyEquity []float64, tra
 	for i := 1; i < len(dailyEquity); i++ {
 		dailyReturns[i-1] = (dailyEquity[i] - dailyEquity[i-1]) / dailyEquity[i-1]
 	}
-	annVol := annualVolatility(dailyReturns, float64(tradingDays))
+	annVol := annualVolatility(dailyReturns)
 
 	return &BacktestReport{
 		TotalReturn:      totalReturn,

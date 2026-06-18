@@ -34,9 +34,6 @@ type stockListArgs struct {
 }
 
 func (a stockListArgs) Validate() error {
-	if a.Limit <= 0 {
-		a.Limit = 20
-	}
 	return nil
 }
 

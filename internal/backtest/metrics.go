@@ -88,9 +88,9 @@ func sumCommission(trades []Trade, rate float64) float64 {
 	return total
 }
 
-// annualVolatility 计算年化波动率(%)。
-func annualVolatility(dailyReturns []float64, tradingDays float64) float64 {
-	if len(dailyReturns) == 0 || tradingDays == 0 {
+// annualVolatility 计算年化波动率(%)，按250个交易日年化。
+func annualVolatility(dailyReturns []float64) float64 {
+	if len(dailyReturns) == 0 {
 		return 0
 	}
 	mean := average(dailyReturns)

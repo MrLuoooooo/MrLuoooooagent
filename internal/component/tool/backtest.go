@@ -121,10 +121,10 @@ func (s *defaultStrategy) Evaluate(ctx backtest.BacktestContext) backtest.Signal
 	if len(ctx.History) < s.longPeriod+1 {
 		return backtest.Signal{Action: backtest.Hold}
 	}
-	shortMA := barSMA(ctx.History, s.shortPeriod)
-	longMA := barSMA(ctx.History, s.longPeriod)
-	prevShort := barSMA(ctx.History[:len(ctx.History)-1], s.shortPeriod)
-	prevLong := barSMA(ctx.History[:len(ctx.History)-1], s.longPeriod)
+	shortMA := backtest.BarSMA(ctx.History, s.shortPeriod)
+	longMA := backtest.BarSMA(ctx.History, s.longPeriod)
+	prevShort := backtest.BarSMA(ctx.History[:len(ctx.History)-1], s.shortPeriod)
+	prevLong := backtest.BarSMA(ctx.History[:len(ctx.History)-1], s.longPeriod)
 
 	if !s.bought && prevShort <= prevLong && shortMA > longMA {
 		s.bought = true
@@ -135,17 +135,6 @@ func (s *defaultStrategy) Evaluate(ctx backtest.BacktestContext) backtest.Signal
 		return backtest.Signal{Action: backtest.Sell, Quantity: 1.0, Reason: "死叉卖出"}
 	}
 	return backtest.Signal{Action: backtest.Hold}
-}
-
-func barSMA(bars []backtest.Bar, period int) float64 {
-	if len(bars) < period {
-		return 0
-	}
-	sum := 0.0
-	for i := len(bars) - period; i < len(bars); i++ {
-		sum += bars[i].Close
-	}
-	return sum / float64(period)
 }
 
 func klinesToBars(klines []stockapi.KLineData) []backtest.Bar {

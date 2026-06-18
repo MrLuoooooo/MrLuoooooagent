@@ -7,6 +7,22 @@ type Strategy interface {
 	Evaluate(ctx BacktestContext) Signal
 }
 
+// BarSMA 计算 Bar 序列的简单移动平均。
+// 纯函数，输入 Bar 数组和周期，输出最后 period 根 K 线的收盘价均值。
+func BarSMA(bars []Bar, period int) float64 {
+	if len(bars) < period || period <= 0 {
+		if len(bars) > 0 {
+			return bars[len(bars)-1].Close
+		}
+		return 0
+	}
+	sum := 0.0
+	for i := len(bars) - period; i < len(bars); i++ {
+		sum += bars[i].Close
+	}
+	return sum / float64(period)
+}
+
 // Bar 单根 K 线，回测引擎的输入单位。
 // 不依赖 api.KLineData，引擎完全自包含。
 type Bar struct {
