@@ -82,6 +82,7 @@ export default function StockPage() {
         },
         () => {},
         () => setStreaming(false),
+        true, // stock_mode
       )
     } catch {
       setStreaming(false)

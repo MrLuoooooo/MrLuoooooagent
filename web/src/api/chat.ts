@@ -9,6 +9,7 @@ export function chatStream(
   onEvent: (evt: StreamEvent) => void,
   onError: (err: Error) => void,
   onFinally: () => void,
+  stockMode?: boolean,
 ): AbortController {
   const controller = new AbortController()
 
@@ -23,6 +24,7 @@ export function chatStream(
           question: message,
           stream: true,
           agent,
+          stock_mode: stockMode || false,
         }),
       })
 
