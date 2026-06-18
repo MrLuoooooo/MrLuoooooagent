@@ -12,6 +12,10 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// StockModeKey 股票专精模式 context key，类型安全避免跨包冲突。
+type contextKey string
+const StockModeKey contextKey = "stock_mode"
+
 func NewAgentGraph(
 	chatModel model.ChatModel,
 	toolsNode *compose.ToolsNode,
@@ -33,7 +37,7 @@ func NewAgentGraph(
 		func(ctx context.Context, msg *schema.Message) ([]*schema.Message, error) {
 			prompt := sysPrompt
 			// 股票专精模式：若 context 中有 stock_mode=true 且有股票专用 prompt，则使用之。
-			if v, ok := ctx.Value("stock_mode").(bool); ok && v && stockPrompt != "" {
+			if v, ok := ctx.Value(StockModeKey).(bool); ok && v && stockPrompt != "" {
 				prompt = stockPrompt
 			}
 			// 注入用户长期记忆

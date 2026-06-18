@@ -73,10 +73,17 @@ func winRateCalc(trades []Trade) (float64, int) {
 }
 
 // sumCommission 计算总手续费。
+// trades[i].Cost 在 engine.go 中已含手续费，此处不应再次应用费率。
+// 对于买入：Cost = qty*price + qty*price*commission，手续费部分 = qty*price*commission
+// 对于卖出：Cost = sellQty*price - sellQty*price*commission（净收入），手续费部分 = sellQty*price*commission
+// 简化：Trade.Cost 字段存储的是总成本/净收入，手续费 = |Cost - qty*price|
+// 此处用简单估算：每笔交易按成交额的 rate 计算。
 func sumCommission(trades []Trade, rate float64) float64 {
 	var total float64
 	for _, t := range trades {
-		total += t.Cost * rate
+		// Cost 字段含义不同（买入=含手续费成本，卖出=净收入），
+		// 统一按成交额 * 费率计算手续费。
+		total += t.Price * float64(t.Quantity) * rate
 	}
 	return total
 }

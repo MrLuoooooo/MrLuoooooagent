@@ -12,16 +12,13 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"go.uber.org/zap"
 	"unicode/utf8"
 )
-
-// stockModeKey 用于在 context 中传递股票专精模式标志。
-// Agent Graph 的 to_messages 节点读取此 key 选择 system prompt。
-const stockModeKey = "stock_mode"
 
 // ChatHandler 处理 /api/v1/chat，分发到 RAG 流式/非流式或 Agent 三种路径。
 type ChatHandler struct {
@@ -159,7 +156,7 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 	ctx := c.Request.Context()
 	// 股票专精模式：注入 context key，Agent Graph 读取后切换 prompt
 	if req.StockMode {
-		ctx = context.WithValue(ctx, stockModeKey, true)
+		ctx = context.WithValue(ctx, graph.StockModeKey, true)
 	}
 	// 用 Eino 内置 checkpoint：传入会话 ID 自动管理断点保存和恢复
 	cpOpt := compose.WithCheckPointID(convID)

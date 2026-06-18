@@ -26,7 +26,7 @@ func NewScreenStocksTool(d db.StockDB) *ScreenStocksTool {
 // ScreenCondition 单个筛选条件。
 // 纯数据结构，无行为。
 type ScreenCondition struct {
-	Field    string `json:"field"`    // pe, pb, market_cap, industry, roe
+	Field    string `json:"field"`    // pe, pb, market_cap, industry
 	Operator string `json:"operator"` // lt, gt, eq, between, contains
 	Value    string `json:"value"`    // 单值：如 "20"；between：如 "10,50"
 }
@@ -41,7 +41,6 @@ func (t *ScreenStocksTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 - pb: lt/gt/eq/between
 - market_cap: lt/gt/eq/between（市值，单位亿）
 - industry: contains(模糊匹配)
-- roe: lt/gt/eq/between
 
 示例：
 单条件：{"field":"pe","operator":"lt","value":"15"}

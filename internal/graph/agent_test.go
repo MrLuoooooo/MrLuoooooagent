@@ -186,7 +186,7 @@ func TestStockModePromptSwitch(t *testing.T) {
 	}
 
 	// stock_mode=true → 股票 prompt
-	ctx := context.WithValue(context.Background(), "stock_mode", true)
+	ctx := context.WithValue(context.Background(), StockModeKey, true)
 	_, err = g.Invoke(ctx, &schema.Message{
 		Role: schema.User, Content: "analyze this stock",
 	})
@@ -210,7 +210,7 @@ func TestStockModePromptSwitch(t *testing.T) {
 	}
 
 	// stock_mode=false → 通用 prompt
-	ctx = context.WithValue(context.Background(), "stock_mode", false)
+	ctx = context.WithValue(context.Background(), StockModeKey, false)
 	_, err = g.Invoke(ctx, &schema.Message{
 		Role: schema.User, Content: "hello again",
 	})

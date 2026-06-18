@@ -261,10 +261,14 @@ func formatOBV(prices, volumes []float64) string {
 	}
 	var b strings.Builder
 	b.WriteString("## OBV\n\n")
+	n := len(result)
 	b.WriteString("| 位置 | OBV |\n|------|------|\n")
-	tail := tail5(len(prices), result)
-	for _, item := range tail {
-		b.WriteString(fmt.Sprintf("| %d | %.0f |\n", item.idx+1, item.v1))
+	start := n - 5
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < n; i++ {
+		b.WriteString(fmt.Sprintf("| %d | %.0f |\n", i+1, result[i]))
 	}
 	return b.String()
 }

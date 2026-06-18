@@ -15,7 +15,7 @@ type BOLLResult struct {
 func BOLL(prices []float64, period int, multiplier float64) *BOLLResult {
 	n := len(prices)
 	if n == 0 || period <= 0 || multiplier <= 0 {
-		return &BOLLResult{}
+		return &BOLLResult{Upper: []float64{}, Middle: []float64{}, Lower: []float64{}}
 	}
 
 	middle := SMA(prices, period)
