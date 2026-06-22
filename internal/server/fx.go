@@ -614,13 +614,17 @@ var Module = fx.Module("goagent",
 			logger.Info("mcp: disabled or no servers configured")
 			return
 		}
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		tools, err := connector.Connect(ctx)
 		if err != nil {
-			logger.Warn("mcp: connect partially failed", zap.Error(err))
+			logger.Error("mcp: all servers failed", zap.Error(err))
+			return
 		}
 		for _, t := range tools {
-			_ = tool.Register(t)
+			if regErr := tool.Register(t); regErr != nil {
+				logger.Warn("mcp: register tool failed", zap.Error(regErr))
+			}
 		}
 		logger.Info("mcp: tools registered", zap.Int("count", len(tools)))
 

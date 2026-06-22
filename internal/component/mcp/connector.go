@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
@@ -15,6 +17,7 @@ import (
 )
 
 // Connector 管理 MCP server 连接生命周期。
+// 非并发安全——Connect() 和 Close() 不可在多个 goroutine 中同时调用。
 type Connector struct {
 	servers []config.MCPServer
 	clients []closer
@@ -25,23 +28,35 @@ type closer interface{ Close() error }
 
 // NewConnector —
 func NewConnector(cfg *config.Config, logger *zap.Logger) *Connector {
-	return &Connector{servers: cfg.MCP.Servers, logger: logger}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	servers := []config.MCPServer{}
+	if cfg != nil {
+		servers = cfg.MCP.Servers
+	}
+	return &Connector{servers: servers, logger: logger}
 }
 
 // Connect 逐个连接 MCP server，拉取工具列表。
-// 任一 server 失败不阻塞后续，仅日志记录。
+// 任一 server 失败不阻塞后续。全部失败时返回聚合错误。
 func (c *Connector) Connect(ctx context.Context) ([]tool.Tool, error) {
 	var all []tool.Tool
+	var errs []error
 	for _, srv := range c.servers {
 		tools, err := c.connectOne(ctx, srv)
 		if err != nil {
 			c.logger.Warn("mcp: connect server failed",
 				zap.String("server", srv.Name), zap.Error(err))
+			errs = append(errs, fmt.Errorf("%s: %w", srv.Name, err))
 			continue
 		}
 		all = append(all, tools...)
 		c.logger.Info("mcp: tools loaded",
 			zap.String("server", srv.Name), zap.Int("count", len(tools)))
+	}
+	if len(errs) > 0 && len(all) == 0 {
+		return nil, fmt.Errorf("mcp: all %d servers failed: %w", len(errs), errors.Join(errs...))
 	}
 	return all, nil
 }
@@ -83,41 +98,55 @@ func (c *Connector) connectOne(ctx context.Context, srv config.MCPServer) ([]too
 func (c *Connector) dial(ctx context.Context, srv config.MCPServer) (*client.Client, error) {
 	switch srv.Transport {
 	case "sse":
-		if srv.URL == "" {
-			return nil, fmt.Errorf("mcp sse: url required")
-		}
-		cc, err := client.NewSSEMCPClient(srv.URL)
-		if err != nil {
-			return nil, fmt.Errorf("mcp sse: %w", err)
-		}
-		if err := cc.Start(ctx); err != nil {
-			return nil, fmt.Errorf("mcp sse start: %w", err)
-		}
-		c.clients = append(c.clients, cc)
-		return cc, nil
-
+		return c.dialSSE(ctx, srv)
 	case "stdio":
-		if srv.Command == "" {
-			return nil, fmt.Errorf("mcp stdio: command required")
-		}
-		env := make([]string, 0, len(srv.Env))
-		for k, v := range srv.Env {
-			env = append(env, k+"="+v)
-		}
-		cc, err := client.NewStdioMCPClient(srv.Command, env, srv.Args...)
-		if err != nil {
-			return nil, fmt.Errorf("mcp stdio: %w", err)
-		}
-		// NewStdioMCPClient 已自动 Start，无需显式调
-		c.clients = append(c.clients, cc)
-		return cc, nil
-
+		return c.dialStdio(srv)
 	default:
 		return nil, fmt.Errorf("mcp: unknown transport %q", srv.Transport)
 	}
 }
 
-// Close 关闭所有连接。
+func (c *Connector) dialSSE(ctx context.Context, srv config.MCPServer) (*client.Client, error) {
+	if srv.URL == "" {
+		return nil, fmt.Errorf("mcp sse: url required")
+	}
+	cc, err := client.NewSSEMCPClient(srv.URL)
+	if err != nil {
+		return nil, fmt.Errorf("mcp sse: %w", err)
+	}
+	if err := cc.Start(ctx); err != nil {
+		cc.Close() // 释放已分配资源
+		return nil, fmt.Errorf("mcp sse start: %w", err)
+	}
+	c.clients = append(c.clients, cc)
+	return cc, nil
+}
+
+func (c *Connector) dialStdio(srv config.MCPServer) (*client.Client, error) {
+	if srv.Command == "" {
+		return nil, fmt.Errorf("mcp stdio: command required")
+	}
+	// 排序 key 保证环境变量顺序确定性
+	keys := make([]string, 0, len(srv.Env))
+	for k := range srv.Env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	env := make([]string, 0, len(keys))
+	for _, k := range keys {
+		env = append(env, k+"="+srv.Env[k])
+	}
+
+	cc, err := client.NewStdioMCPClient(srv.Command, env, srv.Args...)
+	if err != nil {
+		return nil, fmt.Errorf("mcp stdio: %w", err)
+	}
+	// NewStdioMCPClient 已自动 Start，无需显式调用
+	c.clients = append(c.clients, cc)
+	return cc, nil
+}
+
+// Close 关闭所有连接。幂等可重入。
 func (c *Connector) Close() {
 	for _, cli := range c.clients {
 		if err := cli.Close(); err != nil {
@@ -136,9 +165,15 @@ type baseToolAdapter struct {
 }
 
 func (a *baseToolAdapter) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	if a.it == nil {
+		return nil, fmt.Errorf("mcp adapter: nil underlying tool")
+	}
 	return a.it.Info(ctx)
 }
 
 func (a *baseToolAdapter) InvokableRun(ctx context.Context, args string, opts ...eino_tool.Option) (string, error) {
+	if a.it == nil {
+		return "", fmt.Errorf("mcp adapter: nil underlying tool")
+	}
 	return a.it.InvokableRun(ctx, args, opts...)
 }
