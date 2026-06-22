@@ -24,6 +24,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaiembed"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaimodel"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
+	mcp_connector "github.com/MrLuoooooo/MrLuoooooagent/internal/component/mcp"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/handler"
@@ -525,6 +526,10 @@ func ProvideStockHandler(collector *stock.Collector, db stockdb.StockDB, logger 
 	return handler.NewStockHandler(collector, db, logger)
 }
 
+func ProvideMCPConnector(cfg *config.Config, logger *zap.Logger) *mcp_connector.Connector {
+	return mcp_connector.NewConnector(cfg, logger)
+}
+
 func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
 	rps := cfg.Server.RateLimitRPS
 	if rps <= 0 {
@@ -591,6 +596,7 @@ var Module = fx.Module("goagent",
 		ProvideConvHandler,
 		ProvideDocHandler,
 		ProvideStockHandler,
+		ProvideMCPConnector,
 		ProvideRouter,
 	),
 	stockapi.Module,
@@ -601,5 +607,26 @@ var Module = fx.Module("goagent",
 	}),
 	fx.Invoke(func(bp *pipeline.BatchPipeline) {
 		tool.SetBatchPipeline(bp)
+	}),
+	// MCP 连接器：启动时连接外部 MCP server → 拉取工具 → 注册到 ToolRegistry
+	fx.Invoke(func(lc fx.Lifecycle, connector *mcp_connector.Connector, cfg *config.Config, logger *zap.Logger) {
+		if !cfg.MCP.Enabled || len(cfg.MCP.Servers) == 0 {
+			logger.Info("mcp: disabled or no servers configured")
+			return
+		}
+		ctx := context.Background()
+		tools, err := connector.Connect(ctx)
+		if err != nil {
+			logger.Warn("mcp: connect partially failed", zap.Error(err))
+		}
+		for _, t := range tools {
+			_ = tool.Register(t)
+		}
+		logger.Info("mcp: tools registered", zap.Int("count", len(tools)))
+
+		lc.Append(fx.Hook{OnStop: func(ctx context.Context) error {
+			connector.Close()
+			return nil
+		}})
 	}),
 )
