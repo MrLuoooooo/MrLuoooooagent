@@ -8,6 +8,8 @@ model_provider:
   mode: "auto"
   embedding_dimension: 768
   timeout: 120s
+  llm_rate_limit_qps: 10
+  llm_max_concurrent: 20
   local:
     enabled: true
     base_url: "http://localhost:11434"
@@ -186,3 +188,6 @@ alert:
     - sh600519
     - sz000001
   price_change_pct: 5
+mcp:
+  enabled: false
+  servers: []

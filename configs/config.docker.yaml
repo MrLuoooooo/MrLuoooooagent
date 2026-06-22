@@ -8,6 +8,8 @@ model_provider:
   mode: "auto"
   embedding_dimension: 768
   timeout: 300s
+  llm_rate_limit_qps: 10
+  llm_max_concurrent: 20
   model_list:
     - name: "deepseek-chat"
       provider: "openai"
@@ -74,6 +76,9 @@ alert:
   enabled: false
   watchlist: []
   price_change_pct: 5
+mcp:
+  enabled: false
+  servers: []
 log:
   level: "info"
   file_path: "/var/log/goagent/app.log"

@@ -204,9 +204,12 @@ func ProvideModelManager(resolved *ResolvedConfig, cfg *config.Config, customSto
 	return modelmanager.NewModelManager(initial, cfg, customStore, resolved.ChatModel, resolved.BaseURL, logger)
 }
 
-func ProvideChatModel(mm *modelmanager.ModelManager, logger *zap.Logger) model.ChatModel {
-	// 高并发包装：信号量(20) + 令牌桶(10/s) + Circuit Breaker + 优先级
-	return modelmanager.NewHighConcurrencyManager(mm, 20, 10, logger)
+func ProvideChatModel(mm *modelmanager.ModelManager, cfg *config.Config, logger *zap.Logger) model.ChatModel {
+	qps := cfg.ModelProvider.LLMRateLimitQPS
+	if qps <= 0 { qps = 10 }
+	concurrent := cfg.ModelProvider.LLMMaxConcurrent
+	if concurrent <= 0 { concurrent = 20 }
+	return modelmanager.NewHighConcurrencyManager(mm, concurrent, qps, logger)
 }
 
 func ProvideCheckpointStore(cfg *config.Config, logger *zap.Logger) (*store.CheckpointStore, error) {

@@ -17,6 +17,7 @@ type Config struct {
 	Agent         AgentConfig         `mapstructure:"agent"`
 	Memory        MemoryConfig        `mapstructure:"memory"`
 	Alert         AlertConfig         `mapstructure:"alert"`
+	MCP           MCPConfig           `mapstructure:"mcp"`
 }
 
 // StockConfig holds stock data middleware configuration.
@@ -75,6 +76,8 @@ type ModelProviderConfig struct {
 	Mode               string        `mapstructure:"mode"`
 	EmbeddingDimension int           `mapstructure:"embedding_dimension"`
 	Timeout            time.Duration `mapstructure:"timeout"`
+	LLMRateLimitQPS    int           `mapstructure:"llm_rate_limit_qps"`    // LLM API 全局 QPS 上限，默认 10
+	LLMMaxConcurrent   int           `mapstructure:"llm_max_concurrent"`   // LLM API 最大并发数，默认 20
 
 	Local     LocalProviderConfig  `mapstructure:"local"`
 	Cloud     CloudProviderConfig  `mapstructure:"cloud"`
@@ -161,4 +164,22 @@ type LogConfig struct {
 	MaxBackups int    `mapstructure:"max_backups"`
 	MaxAge     int    `mapstructure:"max_age"`
 	Compress   bool   `mapstructure:"compress"`
+}
+
+// ── MCP Config ────────────────────────────
+
+// MCPConfig holds MCP server connection configuration.
+type MCPConfig struct {
+	Enabled bool        `mapstructure:"enabled"`
+	Servers []MCPServer `mapstructure:"servers"`
+}
+
+// MCPServer defines a single MCP server connection.
+type MCPServer struct {
+	Name      string            `mapstructure:"name"`
+	Transport string            `mapstructure:"transport"` // stdio | sse
+	Command   string            `mapstructure:"command"`   // stdio
+	Args      []string          `mapstructure:"args"`      // stdio
+	Env       map[string]string `mapstructure:"env"`       // stdio
+	URL       string            `mapstructure:"url"`       // sse
 }
