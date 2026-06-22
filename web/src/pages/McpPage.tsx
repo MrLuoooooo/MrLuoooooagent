@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { fetchMcpServers, upsertMcpServer, removeMcpServer, toggleMcpEnabled, importMcpZip } from '../api/mcp'
 import type { McpServer, McpImportResult } from '../api/mcp'
-import { Server, Plus, Trash2, AlertCircle, ExternalLink, Terminal, Power, Upload, FolderOpen, RefreshCw, Loader2 } from 'lucide-react'
+import { Server, Plus, Trash2, AlertCircle, ExternalLink, Terminal, Power, Upload, FolderOpen, RefreshCw, Loader2, FileArchive } from 'lucide-react'
+import JSZip from 'jszip'
 
-type TabMode = 'sse' | 'stdio' | 'zip' | 'path'
+type TabMode = 'sse' | 'stdio' | 'zip'
 const emptyForm: McpServer = { name: '', transport: 'sse', url: '', command: '', args: [], env: {} }
 
 export default function McpPage() {
@@ -19,7 +20,9 @@ export default function McpPage() {
   const [importResult, setImportResult] = useState<McpImportResult | null>(null)
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({})
   const [connectErrors, setConnectErrors] = useState<Record<string, string>>({})
-  const fileRef = useRef<HTMLInputElement>(null)
+  const folderRef = useCallback((node: HTMLInputElement | null) => {
+    if (node) { node.setAttribute('webkitdirectory', ''); node.setAttribute('directory', '') }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -79,23 +82,37 @@ export default function McpPage() {
     setErrMsg('')
   }
 
-  const handleZipImport = async () => {
-    const file = fileRef.current?.files?.[0]
-    if (!file) return
+  // handleFileUpload: ZIP文件直接上传，文件夹先JSZip打包再上传
+  const handleFileUpload = async (input: File | FileList, isZip: boolean) => {
     setImporting(true)
     setImportResult(null)
     setErrMsg('')
     try {
+      let file: File
+      if (isZip) {
+        file = input as File
+      } else {
+        const fl = input as FileList
+        const zip = new JSZip()
+        for (let i = 0; i < fl.length; i++) {
+          const f = fl[i]
+          // 保留相对路径
+          const relPath = (f as any).webkitRelativePath || f.name
+          zip.file(relPath, f)
+        }
+        const blob = await zip.generateAsync({ type: 'blob' })
+        file = new File([blob], (form.name || 'mcp-project') + '.zip', { type: 'application/zip' })
+      }
       const result = await importMcpZip(form.name || file.name.replace(/\.zip$/i, ''), file)
       setImportResult(result)
       if (result.code === 0 && result.connected) {
         setConnectedMap(m => ({ ...m, [result.server?.name || '']: true }))
-      } else if (result.error) {
-        if (result.server?.name) setConnectErrors(e => ({ ...e, [result.server!.name]: result.error || '' }))
+      } else if (result.error && result.server?.name) {
+        setConnectErrors(e => ({ ...e, [result.server!.name]: result.error || '' }))
       }
       load()
-    } catch (e) {
-      setErrMsg('上传失败')
+    } catch {
+      setErrMsg('上传或导入失败')
     }
     setImporting(false)
   }
@@ -107,7 +124,6 @@ export default function McpPage() {
           <AlertCircle size={16} /><span>{errMsg}</span>
         </div>
       )}
-
       <div className="flex-1 overflow-y-auto px-4 min-h-0">
         <div className="mx-auto max-w-4xl py-4 space-y-4">
           <div className="flex items-center justify-between">
@@ -121,8 +137,7 @@ export default function McpPage() {
               </button>
             </div>
           </div>
-
-          <p className="text-xs text-gray-400">通过 MCP 协议连接外部工具服务器，上传 ZIP 直接导入项目。</p>
+          <p className="text-xs text-gray-400">通过 MCP 协议连接外部工具服务器。支持 SSE 地址、Stdio 命令、上传 ZIP 或直接选择文件夹。</p>
 
           {showForm && (
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-purple-300 dark:border-purple-700 overflow-hidden">
@@ -130,8 +145,7 @@ export default function McpPage() {
                 {[
                   { id: 'sse', label: 'SSE 地址', icon: ExternalLink },
                   { id: 'stdio', label: 'Stdio 命令', icon: Terminal },
-                  { id: 'zip', label: '上传 ZIP', icon: Upload },
-                  { id: 'path', label: '本地路径', icon: FolderOpen },
+                  { id: 'zip', label: '上传项目', icon: Upload },
                 ].map(t => (
                   <button key={t.id} onClick={() => setTab(t.id as TabMode)} className={`flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition-colors ${tab === t.id ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 border-b-2 border-purple-500' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                     <t.icon size={12} /> {t.label}
@@ -150,13 +164,20 @@ export default function McpPage() {
                   </div>
                 )}
                 {tab === 'zip' && (
-                  <div className="space-y-2">
-                    <label className="flex flex-col items-center gap-2 p-6 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
-                      <Upload size={24} className="text-gray-400" />
-                      <span className="text-sm text-gray-500">点击选择 ZIP 文件或拖拽到此处</span>
-                      <input ref={fileRef} type="file" accept=".zip" onChange={() => {}} className="hidden" />
-                    </label>
-                    {importing && <div className="flex items-center gap-2 text-sm text-purple-500"><Loader2 size={14} className="animate-spin" /> 导入中...</div>}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                        <FileArchive size={22} className="text-gray-400" />
+                        <span className="text-xs text-gray-500">ZIP 压缩包</span>
+                        <input type="file" accept=".zip" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, true) }} className="hidden" />
+                      </label>
+                      <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                        <FolderOpen size={22} className="text-gray-400" />
+                        <span className="text-xs text-gray-500">本地文件夹</span>
+                        <input type="file" ref={folderRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="hidden" />
+                      </label>
+                    </div>
+                    {importing && <div className="flex items-center gap-2 text-sm text-purple-500"><Loader2 size={14} className="animate-spin" /> 正在导入...</div>}
                     {importResult && (
                       <div className={`rounded-lg p-3 text-sm ${importResult.connected ? 'bg-green-50 dark:bg-green-900/20 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
                         {importResult.connected ? `✅ 连接成功，加载 ${importResult.tool_count} 个工具` : `❌ ${importResult.error || '连接失败'}`}
@@ -164,18 +185,8 @@ export default function McpPage() {
                     )}
                   </div>
                 )}
-                {tab === 'path' && (
-                  <div className="space-y-2">
-                    <input value={form.command ?? ''} onChange={e => setForm(f => ({ ...f, transport: 'stdio', command: e.target.value }))} placeholder="项目路径 (如 D:\tools\a-share-mcp)" className="w-full rounded-lg border px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 font-mono" />
-                    <p className="text-xs text-gray-400">输入包路径后，系统自动检测 Python / Node / Go 项目类型。</p>
-                  </div>
-                )}
                 <div className="flex gap-2">
-                  {tab === 'zip' ? (
-                    <button onClick={handleZipImport} disabled={importing} className="rounded-lg bg-purple-500 px-4 py-1.5 text-sm text-white hover:bg-purple-600 disabled:opacity-50">
-                      {importing ? '导入中...' : '上传并导入'}
-                    </button>
-                  ) : (
+                  {tab !== 'zip' && (
                     <button onClick={handleSave} className="rounded-lg bg-purple-500 px-4 py-1.5 text-sm text-white hover:bg-purple-600">保存并连接</button>
                   )}
                   <button onClick={() => { setShowForm(false); resetForm() }} className="rounded-lg bg-gray-200 dark:bg-gray-700 px-4 py-1.5 text-sm hover:bg-gray-300">取消</button>
@@ -215,7 +226,7 @@ export default function McpPage() {
                     )}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
-                    <button onClick={() => { /* reconnect handler */ }} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400" title="重新连接"><RefreshCw size={14} /></button>
+                    <button onClick={() => {}} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400" title="重新连接"><RefreshCw size={14} /></button>
                     <button onClick={() => openForm(s.transport === 'sse' ? 'sse' : 'stdio', s)} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400">编辑</button>
                     <button onClick={() => handleDelete(s.name)} className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-red-400" title="删除"><Trash2 size={14} /></button>
                   </div>
