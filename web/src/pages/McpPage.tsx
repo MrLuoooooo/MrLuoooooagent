@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { fetchMcpServers, upsertMcpServer, removeMcpServer, toggleMcpEnabled, importMcpZip } from '../api/mcp'
 import type { McpServer, McpImportResult } from '../api/mcp'
 import { Server, Plus, Trash2, AlertCircle, ExternalLink, Terminal, Power, Upload, FolderOpen, RefreshCw, Loader2, FileArchive } from 'lucide-react'
@@ -20,9 +20,11 @@ export default function McpPage() {
   const [importResult, setImportResult] = useState<McpImportResult | null>(null)
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({})
   const [connectErrors, setConnectErrors] = useState<Record<string, string>>({})
-  const folderRef = useCallback((node: HTMLInputElement | null) => {
-    if (node) { node.setAttribute('webkitdirectory', ''); node.setAttribute('directory', '') }
-  }, [])
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const el = folderInputRef.current
+    if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') }
+  }, [showForm]) // 每次打开表单重新设置
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -93,15 +95,17 @@ export default function McpPage() {
         file = input as File
       } else {
         const fl = input as FileList
+        if (!fl || fl.length === 0) { setErrMsg('未选择任何文件'); setImporting(false); return }
         const zip = new JSZip()
         for (let i = 0; i < fl.length; i++) {
           const f = fl[i]
-          // 保留相对路径
           const relPath = (f as any).webkitRelativePath || f.name
+          if (!relPath) continue
           zip.file(relPath, f)
         }
+        const name = form.name || 'mcp-project'
         const blob = await zip.generateAsync({ type: 'blob' })
-        file = new File([blob], (form.name || 'mcp-project') + '.zip', { type: 'application/zip' })
+        file = new File([blob], name + '.zip', { type: 'application/zip' })
       }
       const result = await importMcpZip(form.name || file.name.replace(/\.zip$/i, ''), file)
       setImportResult(result)
@@ -111,8 +115,8 @@ export default function McpPage() {
         setConnectErrors(e => ({ ...e, [result.server!.name]: result.error || '' }))
       }
       load()
-    } catch {
-      setErrMsg('上传或导入失败')
+    } catch (e: any) {
+      setErrMsg('导入失败: ' + (e?.message || e?.toString() || '未知错误'))
     }
     setImporting(false)
   }
@@ -174,7 +178,7 @@ export default function McpPage() {
                       <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FolderOpen size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">本地文件夹</span>
-                        <input type="file" ref={folderRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="hidden" />
+                        <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="hidden" />
                       </label>
                     </div>
                     {importing && <div className="flex items-center gap-2 text-sm text-purple-500"><Loader2 size={14} className="animate-spin" /> 正在导入...</div>}
