@@ -44,6 +44,7 @@ func NewRouter(
 	wsH *handler.WorkspaceHandler,
 	fbH *handler.FeedbackHandler,
 	stockH *handler.StockHandler,
+	mcpH *handler.McpHandler,
 	rl *middleware.RateLimiter,
 ) *gin.Engine {
 	engine := gin.New()
@@ -103,6 +104,10 @@ func NewRouter(
 		v1.GET("/stock/watchlist", stockH.GetWatchlist)
 		v1.POST("/stock/watchlist", stockH.AddWatchlist)
 		v1.DELETE("/stock/watchlist/:code", stockH.RemoveWatchlist)
+		v1.GET("/mcp/servers", mcpH.ListServers)
+		v1.POST("/mcp/servers", mcpH.UpsertServer)
+		v1.DELETE("/mcp/servers/:name", mcpH.RemoveServer)
+		v1.POST("/mcp/enabled", mcpH.ToggleEnabled)
 	}
 
 	// SPA 静态文件服务（web/dist）

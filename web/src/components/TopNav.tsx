@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Bot, MessageSquare, FolderOpen, Puzzle, Shield, Layers, TrendingUp, ChevronDown, Menu, X, type LucideIcon } from 'lucide-react'
+import { Bot, MessageSquare, FolderOpen, Puzzle, Shield, Layers, TrendingUp, Server, ChevronDown, Menu, X, type LucideIcon } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
 const mainLinks = [
@@ -13,6 +13,7 @@ const agentLinks = [
   { to: '/skills', label: '技能管理', icon: Puzzle, desc: '自定义 Agent 提示词' },
   { to: '/approvals', label: '审批中心', icon: Shield, desc: '工具调用审批' },
   { to: '/batch', label: '批量任务', icon: Layers, desc: '批量执行 Prompt' },
+  { to: '/mcp', label: 'MCP 管理', icon: Server, desc: 'MCP Server 配置' },
 ]
 
 function isAgentRoute(pathname: string) {

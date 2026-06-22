@@ -452,6 +452,12 @@ func ProvideSkillStore(cfg *config.Config) *service.SkillStore {
 	if dataDir == "" { dataDir = "data" }
 	return service.NewSkillStore(dataDir)
 }
+
+func ProvideMcpStore(cfg *config.Config) *service.McpStore {
+	dataDir := cfg.Stock.DataDir
+	if dataDir == "" { dataDir = "data" }
+	return service.NewMcpStore(dataDir)
+}
 func ProvideApprovalStore(cfg *config.Config) *service.ApprovalStore {
 	dataDir := cfg.Stock.DataDir
 	if dataDir == "" { dataDir = "data" }
@@ -506,6 +512,10 @@ func ProvideSkillHandler(store *service.SkillStore, logger *zap.Logger) *handler
 	return handler.NewSkillHandler(store, logger)
 }
 
+func ProvideMcpHandler(store *service.McpStore, logger *zap.Logger) *handler.McpHandler {
+	return handler.NewMcpHandler(store, logger)
+}
+
 func ProvideWorkspaceHandler(logger *zap.Logger, cfg *config.Config) *handler.WorkspaceHandler {
 	return handler.NewWorkspaceHandler(logger, cfg.Server)
 }
@@ -538,8 +548,8 @@ func ProvideRateLimiter(cfg *config.Config) *middleware.RateLimiter {
 	return middleware.NewRateLimiter(rps, rps*2)
 }
 
-func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, fbH *handler.FeedbackHandler, stockH *handler.StockHandler, rl *middleware.RateLimiter) *gin.Engine {
-	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, fbH, stockH, rl)
+func ProvideRouter(cfg *config.Config, logger *zap.Logger, chatH *handler.ChatHandler, convH *handler.ConversationHandler, docH *handler.DocumentHandler, batchH *handler.BatchHandler, approvalH *handler.ApprovalHandler, modelH *handler.ModelHandler, skillH *handler.SkillHandler, wsH *handler.WorkspaceHandler, fbH *handler.FeedbackHandler, stockH *handler.StockHandler, mcpH *handler.McpHandler, rl *middleware.RateLimiter) *gin.Engine {
+	return NewRouter(cfg, logger, chatH, convH, docH, batchH, approvalH, modelH, skillH, wsH, fbH, stockH, mcpH, rl)
 }
 
 // ── Module ──
@@ -556,6 +566,7 @@ var Module = fx.Module("goagent",
 		ProvideModelStore,
 		ProvideConfidenceService,
 		ProvideSkillStore,
+		ProvideMcpStore,
 		ProvideApprovalStore,
 		ProvideESClient,
 		ProvideIndexer,
@@ -590,6 +601,7 @@ var Module = fx.Module("goagent",
 		ProvideApprovalHandler,
 		ProvideModelHandler,
 		ProvideSkillHandler,
+		ProvideMcpHandler,
 		ProvideWorkspaceHandler,
 		ProvideFeedbackHandler,
 		ProvideChatHandler,

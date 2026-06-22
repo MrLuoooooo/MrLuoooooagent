@@ -7,6 +7,7 @@ import SkillPage from '../pages/SkillPage'
 import ApprovalPage from '../pages/ApprovalPage'
 import BatchPage from '../pages/BatchPage'
 import StockPage from '../pages/StockPage'
+import McpPage from '../pages/McpPage'
 
 export const router = createBrowserRouter([
   {
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: 'skills', element: <SkillPage /> },
       { path: 'approvals', element: <ApprovalPage /> },
       { path: 'batch', element: <BatchPage /> },
+      { path: 'mcp', element: <McpPage /> },
     ],
   },
 ])
