@@ -38,6 +38,22 @@ func NewConnector(cfg *config.Config, logger *zap.Logger) *Connector {
 	return &Connector{servers: servers, logger: logger}
 }
 
+// ConnectResult 单个 server 的连接结果。
+type ConnectResult struct {
+	Server config.MCPServer
+	Tools  []tool.Tool
+	Error  string
+}
+
+// ConnectOne 连接单个 MCP server，返回工具和可能的错误。
+func (c *Connector) ConnectOne(ctx context.Context, srv config.MCPServer) (*ConnectResult, error) {
+	tools, err := c.connectOne(ctx, srv)
+	if err != nil {
+		return &ConnectResult{Server: srv, Error: err.Error()}, err
+	}
+	return &ConnectResult{Server: srv, Tools: tools}, nil
+}
+
 // Connect 逐个连接 MCP server，拉取工具列表。
 // 任一 server 失败不阻塞后续。全部失败时返回聚合错误。
 func (c *Connector) Connect(ctx context.Context) ([]tool.Tool, error) {

@@ -512,8 +512,8 @@ func ProvideSkillHandler(store *service.SkillStore, logger *zap.Logger) *handler
 	return handler.NewSkillHandler(store, logger)
 }
 
-func ProvideMcpHandler(store *service.McpStore, logger *zap.Logger) *handler.McpHandler {
-	return handler.NewMcpHandler(store, logger)
+func ProvideMcpHandler(store *service.McpStore, connector *mcp_connector.Connector, logger *zap.Logger) *handler.McpHandler {
+	return handler.NewMcpHandler(store, connector, logger)
 }
 
 func ProvideWorkspaceHandler(logger *zap.Logger, cfg *config.Config) *handler.WorkspaceHandler {

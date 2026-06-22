@@ -108,6 +108,8 @@ func NewRouter(
 		v1.POST("/mcp/servers", mcpH.UpsertServer)
 		v1.DELETE("/mcp/servers/:name", mcpH.RemoveServer)
 		v1.POST("/mcp/enabled", mcpH.ToggleEnabled)
+		v1.POST("/mcp/import", mcpH.ImportZip)
+		v1.POST("/mcp/servers/:name/connect", mcpH.Connect)
 	}
 
 	// SPA 静态文件服务（web/dist）
