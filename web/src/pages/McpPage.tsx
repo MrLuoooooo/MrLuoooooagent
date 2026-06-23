@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { fetchMcpServers, upsertMcpServer, removeMcpServer, toggleMcpEnabled, importMcpZip } from '../api/mcp'
-import type { McpServer, McpImportResult } from '../api/mcp'
+import type { McpServer } from '../api/mcp'
 import { Server, Plus, Trash2, AlertCircle, ExternalLink, Terminal, Power, Upload, FolderOpen, RefreshCw, Loader2, FileArchive } from 'lucide-react'
 import JSZip from 'jszip'
 
@@ -17,16 +17,15 @@ export default function McpPage() {
   const [argsText, setArgsText] = useState('')
   const [errMsg, setErrMsg] = useState('')
   const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<McpImportResult | null>(null)
+  const [importResult, setImportResult] = useState<string | null>(null)
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({})
   const [connectErrors, setConnectErrors] = useState<Record<string, string>>({})
   const folderInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
-  // 设置文件夹选择器属性——依赖 tab 因为输入框在 tab 切换时会被条件渲染重新挂载
   useEffect(() => {
     const el = folderInputRef.current
     if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') }
-  }, [showForm, tab]) // 每次打开表单重新设置
+  }, [showForm, tab])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -49,11 +48,11 @@ export default function McpPage() {
       const result = await upsertMcpServer(srv)
       setShowForm(false); resetForm(); setErrMsg('')
       if (result?.connected) {
-        setConnectedMap(m => ({ ...m, [srv.name]: true }))
+        if (srv.name) setConnectedMap(m => ({ ...m, [srv.name]: true }))
         delete connectErrors[srv.name]
       } else if (result?.error) {
-        setConnectedMap(m => ({ ...m, [srv.name]: false }))
-        setConnectErrors(e => ({ ...e, [srv.name]: result.error || '' }))
+        if (srv.name) setConnectedMap(m => ({ ...m, [srv.name]: false }))
+        if (srv.name) setConnectErrors(e => ({ ...e, [srv.name]: result.error || '' }))
       }
       load()
     } catch { setErrMsg('保存失败') }
@@ -84,9 +83,9 @@ export default function McpPage() {
     }
     setShowForm(true)
     setErrMsg('')
+    setImportResult(null)
   }
 
-  // handleFileUpload: ZIP文件直接上传，文件夹先JSZip打包再上传
   const handleFileUpload = async (input: File | FileList, isZip: boolean) => {
     setImporting(true)
     setImportResult(null)
@@ -94,10 +93,13 @@ export default function McpPage() {
     try {
       let file: File
       if (isZip) {
-        file = input as File
+        const f = input as File
+        if (!f.name.toLowerCase().endsWith('.zip')) { setErrMsg('请选择 .zip 文件'); setImporting(false); return }
+        file = f
       } else {
         const fl = input as FileList
         if (!fl || fl.length === 0) { setErrMsg('未选择任何文件'); setImporting(false); return }
+        if (!(fl[0] as any).webkitRelativePath) { setErrMsg('文件夹导入需要 Chrome/Edge 等浏览器支持'); setImporting(false); return }
         const zip = new JSZip()
         for (let i = 0; i < fl.length; i++) {
           const f = fl[i]
@@ -110,17 +112,20 @@ export default function McpPage() {
         file = new File([blob], name + '.zip', { type: 'application/zip' })
       }
       const result = await importMcpZip(form.name || file.name.replace(/\.zip$/i, ''), file)
-      setImportResult(result)
-      if (result.code === 0 && result.connected) {
-        setConnectedMap(m => ({ ...m, [result.server?.name || '']: true }))
-      } else if (result.error && result.server?.name) {
-        setConnectErrors(e => ({ ...e, [result.server!.name]: result.error || '' }))
+      if (result.code !== 0 || !result.connected) {
+        setImportResult('❌ ' + (result.error || result.message || '连接失败'))
+        if (result.server?.name && result.error) setConnectErrors(e => ({ ...e, [result.server!.name]: result.error }))
+      } else {
+        setImportResult('✅ 连接成功，加载 ' + result.tool_count + ' 个工具')
+        if (result.server?.name) setConnectedMap(m => ({ ...m, [result.server.name]: true }))
       }
       load()
     } catch (e: any) {
-      setErrMsg('导入失败: ' + (e?.message || e?.toString() || '未知错误'))
+      setImportResult('❌ ' + (e?.message || '上传失败'))
     }
     setImporting(false)
+    if (isZip && zipInputRef.current) zipInputRef.current.value = ''
+    if (!isZip && folderInputRef.current) folderInputRef.current.value = ''
   }
 
   return (
@@ -143,7 +148,7 @@ export default function McpPage() {
               </button>
             </div>
           </div>
-          <p className="text-xs text-gray-400">通过 MCP 协议连接外部工具服务器。支持 SSE 地址、Stdio 命令、上传 ZIP 或直接选择文件夹。</p>
+          <p className="text-xs text-gray-400">通过 MCP 协议连接外部工具服务器。支持 SSE 地址、Stdio 命令、ZIP 导入或选择本地文件夹。</p>
 
           {showForm && (
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-purple-300 dark:border-purple-700 overflow-hidden">
@@ -172,21 +177,21 @@ export default function McpPage() {
                 {tab === 'zip' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <label onClick={() => zipInputRef.current?.click()} className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                      <label className="relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FileArchive size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">ZIP 压缩包</span>
                         <input ref={zipInputRef} type="file" accept=".zip" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, true) }} className="hidden" />
                       </label>
-                      <label onClick={() => folderInputRef.current?.click()} className="relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                      <label className="relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FolderOpen size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">本地文件夹</span>
-                        <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="absolute inset-0 opacity-0 cursor-pointer" />
+                        <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="absolute inset-0 opacity-0" />
                       </label>
                     </div>
                     {importing && <div className="flex items-center gap-2 text-sm text-purple-500"><Loader2 size={14} className="animate-spin" /> 正在导入...</div>}
                     {importResult && (
-                      <div className={`rounded-lg p-3 text-sm ${importResult.connected ? 'bg-green-50 dark:bg-green-900/20 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
-                        {importResult.connected ? `✅ 连接成功，加载 ${importResult.tool_count} 个工具` : `❌ ${importResult.error || '连接失败'}`}
+                      <div className={`rounded-lg p-3 text-sm ${importResult.startsWith('✅') ? 'bg-green-50 dark:bg-green-900/20 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+                        {importResult}
                       </div>
                     )}
                   </div>
@@ -198,6 +203,15 @@ export default function McpPage() {
                   <button onClick={() => { setShowForm(false); resetForm() }} className="rounded-lg bg-gray-200 dark:bg-gray-700 px-4 py-1.5 text-sm hover:bg-gray-300">取消</button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {importing && !showForm && (
+            <div className="flex items-center gap-2 text-sm text-purple-500 justify-center py-2"><Loader2 size={14} className="animate-spin" /> 正在导入...</div>
+          )}
+          {importResult && !showForm && (
+            <div className={`rounded-lg p-3 text-sm text-center ${importResult.startsWith('✅') ? 'bg-green-50 dark:bg-green-900/20 text-green-700' : 'bg-red-50 dark:bg-red-900/20 text-red-600'}`}>
+              {importResult}
             </div>
           )}
 

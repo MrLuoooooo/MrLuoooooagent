@@ -33,7 +33,7 @@ func NewMcpHandler(store *service.McpStore, connector *mcp_connector.Connector, 
 func (h *McpHandler) ListServers(c *gin.Context) {
 	servers, err := h.store.Load()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	if servers == nil {
@@ -53,7 +53,7 @@ func (h *McpHandler) UpsertServer(c *gin.Context) {
 		return
 	}
 	if err := h.store.Upsert(req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	// 自动连接
@@ -75,7 +75,7 @@ func (h *McpHandler) UpsertServer(c *gin.Context) {
 func (h *McpHandler) RemoveServer(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.store.Remove(name); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0})
@@ -89,7 +89,7 @@ func (h *McpHandler) ToggleEnabled(c *gin.Context) {
 		return
 	}
 	if err := h.store.SetEnabled(req.Enabled); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"code": 0})
@@ -104,44 +104,47 @@ func (h *McpHandler) ImportZip(c *gin.Context) {
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": "请上传 ZIP 文件"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "请上传 ZIP 文件"})
 		return
 	}
 	defer file.Close()
 
-	// 保存 ZIP 到临时目录
-	tmpDir := filepath.Join(os.TempDir(), "goagent-mcp", name)
-	os.RemoveAll(tmpDir)
-	os.MkdirAll(tmpDir, 0755)
+	// 解压到唯一临时目录，用完清理
+	tmpDir, err := os.MkdirTemp("", "goagent-mcp-")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
+		return
+	}
+	defer os.RemoveAll(tmpDir)
 
 	zipPath := filepath.Join(tmpDir, header.Filename)
 	f, err := os.Create(zipPath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	if _, err := io.Copy(f, file); err != nil {
 		f.Close()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	f.Close()
 
 	// 解压
 	if err := unzip(zipPath, tmpDir); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": "解压失败: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "解压失败: " + err.Error()})
 		return
 	}
 
 	// 检测项目类型并生成配置
 	srv := detectProject(tmpDir, name)
 	if srv.Transport == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "message": "未识别项目类型——需要 package.json / requirements.txt / go.mod 之一"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "未识别项目类型——需要 package.json / requirements.txt / go.mod 之一"})
 		return
 	}
 
 	if err := h.store.Upsert(srv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 
@@ -177,7 +180,7 @@ func (h *McpHandler) Connect(c *gin.Context) {
 	name := c.Param("name")
 	servers, err := h.store.Load()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
 	var srv config.MCPServer

@@ -20,6 +20,7 @@ export interface McpImportResult {
   connected?: boolean
   tool_count?: number
   error?: string
+  message?: string
 }
 
 export function fetchMcpServers(): Promise<McpConfig> {
@@ -46,17 +47,24 @@ export function toggleMcpEnabled(enabled: boolean): Promise<void> {
   })
 }
 
+const DEV_BASE = 'http://127.0.0.1:8081/api/v1'
+
 export function importMcpZip(name: string, file: File): Promise<McpImportResult> {
   const form = new FormData()
   form.append('name', name)
   form.append('file', file)
 
-  const BASE = import.meta.env.DEV ? 'http://127.0.0.1:8080/api/v1' : '/api/v1'
-  const token = import.meta.env.VITE_API_TOKEN || localStorage.getItem('goagent_token') || 'dev-token'
+  const BASE = import.meta.env.DEV ? DEV_BASE : '/api/v1'
+  const token = localStorage.getItem('goagent_token') || 'dev-token'
 
   return fetch(BASE + '/mcp/import', {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token },
     body: form,
-  }).then(r => r.json())
+  }).then(async r => {
+    const body = await r.json()
+    if (!r.ok) throw new Error(body.message || body.error || `HTTP ${r.status}`)
+    if (body.code !== 0) throw new Error(body.message || body.error || 'import failed')
+    return body as McpImportResult
+  })
 }
