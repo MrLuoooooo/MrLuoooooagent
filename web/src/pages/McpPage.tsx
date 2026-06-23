@@ -21,6 +21,7 @@ export default function McpPage() {
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({})
   const [connectErrors, setConnectErrors] = useState<Record<string, string>>({})
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const zipInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const el = folderInputRef.current
     if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') }
@@ -170,12 +171,12 @@ export default function McpPage() {
                 {tab === 'zip' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                      <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                      <label onClick={() => zipInputRef.current?.click()} className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FileArchive size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">ZIP 压缩包</span>
-                        <input type="file" accept=".zip" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, true) }} className="hidden" />
+                        <input ref={zipInputRef} type="file" accept=".zip" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, true) }} className="hidden" />
                       </label>
-                      <label className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                      <label onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FolderOpen size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">本地文件夹</span>
                         <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="hidden" />
