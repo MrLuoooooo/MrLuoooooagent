@@ -22,10 +22,11 @@ export default function McpPage() {
   const [connectErrors, setConnectErrors] = useState<Record<string, string>>({})
   const folderInputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
+  // 设置文件夹选择器属性——依赖 tab 因为输入框在 tab 切换时会被条件渲染重新挂载
   useEffect(() => {
     const el = folderInputRef.current
     if (el) { el.setAttribute('webkitdirectory', ''); el.setAttribute('directory', '') }
-  }, [showForm]) // 每次打开表单重新设置
+  }, [showForm, tab]) // 每次打开表单重新设置
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,10 +177,10 @@ export default function McpPage() {
                         <span className="text-xs text-gray-500">ZIP 压缩包</span>
                         <input ref={zipInputRef} type="file" accept=".zip" onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f, true) }} className="hidden" />
                       </label>
-                      <label onClick={() => folderInputRef.current?.click()} className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
+                      <label onClick={() => folderInputRef.current?.click()} className="relative flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-lg border-gray-300 dark:border-gray-600 hover:border-purple-400 cursor-pointer transition-colors">
                         <FolderOpen size={22} className="text-gray-400" />
                         <span className="text-xs text-gray-500">本地文件夹</span>
-                        <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="hidden" />
+                        <input type="file" ref={folderInputRef} onChange={e => { const fs = e.target.files; if (fs && fs.length > 0) handleFileUpload(fs, false) }} className="absolute inset-0 opacity-0 cursor-pointer" />
                       </label>
                     </div>
                     {importing && <div className="flex items-center gap-2 text-sm text-purple-500"><Loader2 size={14} className="animate-spin" /> 正在导入...</div>}
