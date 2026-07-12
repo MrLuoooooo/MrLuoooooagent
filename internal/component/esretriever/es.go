@@ -62,6 +62,9 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 			},
 			"size": topK,
 		}
+		if options.ScoreThreshold != nil && *options.ScoreThreshold > 0 {
+			searchBody["min_score"] = *options.ScoreThreshold
+		}
 	} else {
 		searchBody = map[string]any{
 			"knn": map[string]any{

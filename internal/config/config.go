@@ -110,6 +110,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("conversation.max_history", 20)
 	v.SetDefault("conversation.storage_type", "elasticsearch")
 
+	v.SetDefault("retrieval.top_k", 10)
+	v.SetDefault("retrieval.candidate_top_k", 30)
+	v.SetDefault("retrieval.score_threshold", 0.3)
+	v.SetDefault("retrieval.hybrid_enabled", false)
+
 	v.SetDefault("search.enabled", false)
 	v.SetDefault("search.api_key", "")
 	v.SetDefault("search.base_url", "https://serpapi.com/search")

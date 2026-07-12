@@ -16,6 +16,7 @@ type Config struct {
 	Stock         StockConfig         `mapstructure:"stock"`
 	Agent         AgentConfig         `mapstructure:"agent"`
 	Memory        MemoryConfig        `mapstructure:"memory"`
+	Retrieval     RetrievalConfig     `mapstructure:"retrieval"`
 	Alert         AlertConfig         `mapstructure:"alert"`
 	MCP           MCPConfig           `mapstructure:"mcp"`
 }
@@ -35,6 +36,14 @@ type AgentConfig struct {
 type MemoryConfig struct {
 	Enabled       bool `mapstructure:"enabled"`
 	RetrievalTopK int  `mapstructure:"retrieval_top_k"`
+}
+
+// RetrievalConfig holds RAG retrieval configuration.
+type RetrievalConfig struct {
+	TopK           int     `mapstructure:"top_k"`
+	CandidateTopK  int     `mapstructure:"candidate_top_k"`
+	ScoreThreshold float64 `mapstructure:"score_threshold"`
+	HybridEnabled  bool    `mapstructure:"hybrid_enabled"`
 }
 
 // AlertConfig holds intraday alert configuration.

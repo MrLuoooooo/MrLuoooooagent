@@ -52,6 +52,11 @@ conversation:
 memory:
   enabled: true
   retrieval_top_k: 5
+retrieval:
+  top_k: 10
+  candidate_top_k: 30
+  score_threshold: 0.3
+  hybrid_enabled: false
 log:
   level: "debug"
   file_path: "./logs/goagent.log"
