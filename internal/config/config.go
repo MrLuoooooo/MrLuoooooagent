@@ -114,6 +114,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("retrieval.candidate_top_k", 30)
 	v.SetDefault("retrieval.score_threshold", 0.3)
 	v.SetDefault("retrieval.hybrid_enabled", false)
+	v.SetDefault("retrieval.reranker_enabled", false)
 
 	v.SetDefault("search.enabled", false)
 	v.SetDefault("search.api_key", "")

@@ -23,6 +23,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaiembed"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaimodel"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/reranker"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
 	mcp_connector "github.com/MrLuoooooo/MrLuoooooagent/internal/component/mcp"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
@@ -320,9 +321,16 @@ func (a *docStoreAdapter) List(ctx context.Context) ([]service.DocMeta, error) {
 
 func ProvideDocStoreAdapter(es *store.ESDocumentStore) service.DocStore { return &docStoreAdapter{es: es} }
 
-func ProvideRAGChain(cm model.ChatModel, rd retriever.Retriever) (compose.Runnable[string, *eino_schema.Message], error) {
+func ProvideReranker(cm model.ChatModel, cfg *config.Config) reranker.Reranker {
+	if !cfg.Retrieval.RerankerEnabled {
+		return nil
+	}
+	return reranker.NewLLMReranker(cm)
+}
+
+func ProvideRAGChain(cm model.ChatModel, rd retriever.Retriever, rr reranker.Reranker, cfg *config.Config) (compose.Runnable[string, *eino_schema.Message], error) {
 	tmpl := prompt.NewRAGTemplate()
-	return pipeline.NewRAGChain(rd, tmpl, cm)
+	return pipeline.NewRAGChain(rd, tmpl, cm, rr, cfg.Retrieval.TopK, cfg.Retrieval.CandidateTopK)
 }
 
 type ToolRegistry struct{}
@@ -579,6 +587,7 @@ var Module = fx.Module("goagent",
 		ProvideDocumentStore,
 		ProvideDocStoreAdapter,
 		ProvideVectorDeleter,
+		ProvideReranker,
 		ProvideRAGChain,
 		ProvideStockCache,
 		ProvideStockStore,

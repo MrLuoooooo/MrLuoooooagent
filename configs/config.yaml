@@ -57,6 +57,7 @@ retrieval:
   candidate_top_k: 30
   score_threshold: 0.3
   hybrid_enabled: false
+  reranker_enabled: false
 log:
   level: "debug"
   file_path: "./logs/goagent.log"
