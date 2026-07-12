@@ -3,15 +3,21 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/chunker"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/indexer"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 )
+
+// CtxFileName is the context key for passing the original file name
+// through the ingestion chain without changing the Eino chain type signature.
+type ctxKey string
+
+const CtxFileName ctxKey = "ingest_file_name"
 
 // NewDocumentIngestionChain 文档摄入流水线：切分 → embedding → 写入向量库，返回文档 ID。
 func NewDocumentIngestionChain(
@@ -30,24 +36,28 @@ func NewDocumentIngestionChain(
 			}
 
 			text := string(data)
+			fileName, _ := ctx.Value(CtxFileName).(string)
 
-			// 1. Chunk text.
-			chunks := chunkText(text, chunkSize, chunkOverlap)
-			if len(chunks) == 0 {
+			// 1. Chunk with semantic boundary detection (paragraph + sentence).
+			results := chunker.ChunkSemantic(text, chunkSize, chunkOverlap)
+			if len(results) == 0 {
 				return nil, fmt.Errorf("no content after chunking")
 			}
 
 			// 2. Create documents with IDs. All chunks share a parent document_id.
 			parentID := uuid.New().String()
 			now := time.Now().UTC()
-			docs := make([]*schema.Document, len(chunks))
-			for i, chunk := range chunks {
+			docs := make([]*schema.Document, len(results))
+			for i, r := range results {
 				docs[i] = &schema.Document{
 					ID:      uuid.New().String(),
-					Content: chunk,
+					Content: r.Text,
 					MetaData: map[string]any{
 						"document_id": parentID,
 						"chunk_index": i,
+						"title":       fileName,
+						"section":     r.Section,
+						"char_count":  len([]rune(r.Text)),
 						"created_at":  now.Format(time.RFC3339),
 					},
 				}
@@ -84,35 +94,4 @@ func NewDocumentIngestionChain(
 	))
 
 	return chain.Compile(context.Background())
-}
-
-// chunkText splits text into overlapping chunks of approximately chunkSize characters.
-func chunkText(text string, size, overlap int) []string {
-	if size <= 0 {
-		size = 500
-	}
-	if overlap >= size {
-		overlap = size / 10
-	}
-
-	runes := []rune(text)
-	if len(runes) <= size {
-		return []string{text}
-	}
-
-	var chunks []string
-	start := 0
-	for start < len(runes) {
-		end := start + size
-		if end > len(runes) {
-			end = len(runes)
-		}
-		chunk := strings.TrimSpace(string(runes[start:end]))
-		if chunk != "" {
-			chunks = append(chunks, chunk)
-		}
-		start += size - overlap
-	}
-
-	return chunks
 }

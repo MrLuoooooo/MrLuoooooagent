@@ -70,7 +70,7 @@ func (s *DocumentService) Ingest(ctx context.Context, data []byte, filename stri
 		text = string(data)
 	}
 
-	ids, err := s.ingestionChain.Invoke(ctx, []byte(text))
+	ids, err := s.ingestionChain.Invoke(context.WithValue(ctx, pipeline.CtxFileName, filename), []byte(text))
 	if err != nil {
 		s.logger.Error("document ingestion failed", zap.Error(err))
 		return nil, err
