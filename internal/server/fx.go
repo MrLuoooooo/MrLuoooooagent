@@ -242,7 +242,7 @@ func ProvideIndexer(client *elasticsearch.Client, emb embedding.Embedder, ec *Re
 }
 
 func ProvideRetriever(client *elasticsearch.Client, emb embedding.Embedder, cfg *config.Config) retriever.Retriever {
-	return esretriever.NewESRetriever(client, emb, cfg.VectorStore.Elasticsearch.IndexName, cfg.Retrieval.TopK)
+	return esretriever.NewESRetriever(client, emb, cfg.VectorStore.Elasticsearch.IndexName, cfg.Retrieval.TopK, cfg.Retrieval.CandidateTopK, cfg.Retrieval.ScoreThreshold, cfg.Retrieval.HybridEnabled)
 }
 
 func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESConversationStore, error) {

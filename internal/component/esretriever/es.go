@@ -12,21 +12,28 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 )
 
-// ESRRetriever 用 ES kNN 做向量检索。
+// ESRRetriever 用 ES kNN 做向量检索，可选混合 kNN+BM25+RRF。
 type ESRRetriever struct {
-	client    *elasticsearch.Client
-	embedder  embedding.Embedder
-	indexName string
-	topK      int
+	client         *elasticsearch.Client
+	embedder       embedding.Embedder
+	indexName      string
+	topK           int
+	candidateTopK  int
+	scoreThreshold float64
+	hybridEnabled  bool
 }
 
 // NewESRetriever 建一个 ES 向量检索器。
-func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexName string, topK int) retriever.Retriever {
+// hybridEnabled=true 时走 kNN+BM25+RRF 多路融合。
+func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexName string, topK int, candidateTopK int, scoreThreshold float64, hybridEnabled bool) retriever.Retriever {
 	return &ESRRetriever{
-		client:    client,
-		embedder:  emb,
-		indexName: indexName,
-		topK:      topK,
+		client:         client,
+		embedder:       emb,
+		indexName:      indexName,
+		topK:           topK,
+		candidateTopK:  candidateTopK,
+		scoreThreshold: scoreThreshold,
+		hybridEnabled:  hybridEnabled,
 	}
 }
 
@@ -64,6 +71,28 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 		}
 		if options.ScoreThreshold != nil && *options.ScoreThreshold > 0 {
 			searchBody["min_score"] = *options.ScoreThreshold
+		}
+	} else if r.hybridEnabled {
+		// 混合检索：kNN + BM25，ES 8.9+ 原生 RRF 融合排序。
+		searchBody = map[string]any{
+			"knn": map[string]any{
+				"field":          "embedding",
+				"query_vector":   queryVec,
+				"k":              r.candidateTopK,
+				"num_candidates": r.candidateTopK * 10,
+			},
+			"query": map[string]any{
+				"match": map[string]any{"content": query},
+			},
+			"rank": map[string]any{
+				"rrf": map[string]any{
+					"window_size": 60,
+				},
+			},
+			"size": topK,
+		}
+		if r.scoreThreshold > 0 {
+			searchBody["min_score"] = r.scoreThreshold
 		}
 	} else {
 		searchBody = map[string]any{
