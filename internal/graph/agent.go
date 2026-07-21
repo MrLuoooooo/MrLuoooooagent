@@ -75,9 +75,16 @@ func NewAgentGraph(
 					"\n用户询问工作目录时直接回答以上信息，不要调用任何工具。"
 				prompt = wsBlock + "\n" + prompt
 			}
+			// Query rewrite: 口语化/错别字/缩写归一为书面提问
+			userContent := msg.Content
+			rewritten := rewriteQueryIfNeeded(ctx, chatModel, userContent)
+			if rewritten != "" {
+				userContent = rewritten
+			}
+
 			return []*schema.Message{
 				{Role: schema.System, Content: prompt},
-				{Role: schema.User, Content: prefixForContent(msg.Content)},
+				{Role: schema.User, Content: prefixForContent(userContent)},
 			}, nil
 		},
 	))

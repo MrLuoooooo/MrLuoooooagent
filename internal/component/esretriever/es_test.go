@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewESRetriever(t *testing.T) {
-	r := NewESRetriever(nil, nil, "test_index", 10)
+	r := NewESRetriever(nil, nil, "test_index", 10, 30, 0.3, false)
 	if r == nil {
 		t.Fatal("NewESRetriever should not return nil")
 	}

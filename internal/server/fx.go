@@ -386,38 +386,40 @@ func ProvideEastMoneyClient(logger *zap.Logger) *stockapi.EastMoneyClient {
 }
 
 func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB, emClient *stockapi.EastMoneyClient) *ToolRegistry {
-	tool.Register(&tool.ReadFileTool{})
-	tool.Register(&tool.WriteFileTool{})
-	tool.Register(&tool.EditFileTool{})
-	tool.Register(&tool.DeleteFileTool{})
-	tool.Register(&tool.ListDirectoryTool{})
-	tool.Register(&tool.CreateDirectoryTool{})
-	tool.Register(&tool.SearchFilesTool{})
-	tool.Register(&tool.GetFileInfoTool{})
-	tool.Register(tool.NewBashTool(cfg.Server.AllowedDirs))
-	tool.Register(tool.NewWriteAndExecuteTool(cfg.Server.AllowedDirs))
-	tool.Register(&tool.DateTimeTool{})
-	tool.Register(tool.NewWebSearchTool(cfg.Search.BaseURL, cfg.Search.APIKey, cfg.Search.Engine, cfg.Search.Format, cfg.Search.Enabled))
-	tool.Register(tool.NewRAGTool(func(ctx context.Context, query string) (string, error) {
+	wrap := tool.WrapWithTimeoutBreaker
+	wcfg := tool.DefaultWrapperConfig
+	tool.Register(wrap(&tool.ReadFileTool{}, wcfg))
+	tool.Register(wrap(&tool.WriteFileTool{}, wcfg))
+	tool.Register(wrap(&tool.EditFileTool{}, wcfg))
+	tool.Register(wrap(&tool.DeleteFileTool{}, wcfg))
+	tool.Register(wrap(&tool.ListDirectoryTool{}, wcfg))
+	tool.Register(wrap(&tool.CreateDirectoryTool{}, wcfg))
+	tool.Register(wrap(&tool.SearchFilesTool{}, wcfg))
+	tool.Register(wrap(&tool.GetFileInfoTool{}, wcfg))
+	tool.Register(wrap(tool.NewBashTool(cfg.Server.AllowedDirs), wcfg))
+	tool.Register(wrap(tool.NewWriteAndExecuteTool(cfg.Server.AllowedDirs), wcfg))
+	tool.Register(wrap(&tool.DateTimeTool{}, wcfg))
+	tool.Register(wrap(tool.NewWebSearchTool(cfg.Search.BaseURL, cfg.Search.APIKey, cfg.Search.Engine, cfg.Search.Format, cfg.Search.Enabled), wcfg))
+	tool.Register(wrap(tool.NewRAGTool(func(ctx context.Context, query string) (string, error) {
 		msg, err := ragChain.Invoke(ctx, query)
 		if err != nil { return "", err }
 		return msg.Content, nil
-	}))
-	tool.Register(tool.NewStockRealtimeTool(collector))
-	tool.Register(tool.NewStockKLineTool(collector))
-	tool.Register(tool.NewWebFetchTool(cfg.Search.Enabled))
-	tool.Register(&tool.CalculatorTool{})
-	tool.Register(tool.NewStockSearchTool(stockDB))
-	tool.Register(tool.NewStockListTool(stockDB))
-	tool.Register(tool.NewScreenStocksTool(stockDB))
-	tool.Register(&tool.StockIndexTool{})
-	tool.Register(&tool.JSONTool{})
-	tool.Register(&tool.TextTools{})
-	tool.Register(indicator.NewIndicatorTool())
-	tool.Register(tool.NewFinancialReportTool(emClient))
-	tool.Register(tool.NewMarketNewsTool(emClient))
-	tool.Register(tool.NewBacktestTool(collector))
-	tool.Register(tool.NewBatchTool())
+	}), wcfg))
+	tool.Register(wrap(tool.NewStockRealtimeTool(collector), wcfg))
+	tool.Register(wrap(tool.NewStockKLineTool(collector), wcfg))
+	tool.Register(wrap(tool.NewWebFetchTool(cfg.Search.Enabled), wcfg))
+	tool.Register(wrap(&tool.CalculatorTool{}, wcfg))
+	tool.Register(wrap(tool.NewStockSearchTool(stockDB), wcfg))
+	tool.Register(wrap(tool.NewStockListTool(stockDB), wcfg))
+	tool.Register(wrap(tool.NewScreenStocksTool(stockDB), wcfg))
+	tool.Register(wrap(&tool.StockIndexTool{}, wcfg))
+	tool.Register(wrap(&tool.JSONTool{}, wcfg))
+	tool.Register(wrap(&tool.TextTools{}, wcfg))
+	tool.Register(wrap(indicator.NewIndicatorTool(), wcfg))
+	tool.Register(wrap(tool.NewFinancialReportTool(emClient), wcfg))
+	tool.Register(wrap(tool.NewMarketNewsTool(emClient), wcfg))
+	tool.Register(wrap(tool.NewBacktestTool(collector), wcfg))
+	tool.Register(wrap(tool.NewBatchTool(), wcfg))
 	return &ToolRegistry{}
 }
 
@@ -643,7 +645,8 @@ var Module = fx.Module("goagent",
 			return
 		}
 		for _, t := range tools {
-			if regErr := tool.Register(t); regErr != nil {
+			wrapped := tool.WrapWithTimeoutBreaker(t, tool.DefaultWrapperConfig)
+			if regErr := tool.Register(wrapped); regErr != nil {
 				logger.Warn("mcp: register tool failed", zap.Error(regErr))
 			}
 		}

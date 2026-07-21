@@ -40,6 +40,9 @@ func NewESRetriever(client *elasticsearch.Client, emb embedding.Embedder, indexN
 // Retrieve 把 query 转成向量，从 ES 里搜 topK 条最相似的文档。
 // 向量失效（stub/embedding 不可用）时自动回退为 BM25 文本搜索。
 func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retriever.Option) ([]*schema.Document, error) {
+	if r.client == nil {
+		return nil, fmt.Errorf("retriever: ES client is nil")
+	}
 	options := retriever.GetCommonOptions(&retriever.Options{
 		TopK: &r.topK,
 	}, opts...)
@@ -61,6 +64,16 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 	// 检测 stub 向量（[1,0,0,...]）→ 回退为 BM25 文本搜索。
 	isStub := len(queryVec) >= 3 && queryVec[0] == 1.0 && queryVec[1] == 0.0 && queryVec[2] == 0.0
 
+	// 检索只搜 child chunks，排除 parent（parent 用于上下文注入非检索匹配）。
+	// 向后兼容：旧文档无 chunk_type 的也不排除。
+	childTypeFilter := map[string]any{
+		"bool": map[string]any{
+			"must_not": []map[string]any{
+				{"term": map[string]any{"meta_data.chunk_type": "parent"}},
+			},
+		},
+	}
+
 	var searchBody map[string]any
 	if isStub {
 		searchBody = map[string]any{
@@ -80,6 +93,7 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 				"query_vector":   queryVec,
 				"k":              r.candidateTopK,
 				"num_candidates": r.candidateTopK * 10,
+				"filter":         childTypeFilter,
 			},
 			"query": map[string]any{
 				"match": map[string]any{"content": query},
@@ -101,6 +115,7 @@ func (r *ESRRetriever) Retrieve(ctx context.Context, query string, opts ...retri
 				"query_vector":   queryVec,
 				"k":              topK,
 				"num_candidates": topK * 10,
+				"filter":         childTypeFilter,
 			},
 		}
 		if options.ScoreThreshold != nil {

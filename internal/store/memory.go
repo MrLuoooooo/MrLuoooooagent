@@ -15,31 +15,37 @@ import (
 
 // MemoryMeta 是 store 层对外暴露的记忆元数据，不含向量。
 type MemoryMeta struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Type      string    `json:"type"`
-	Content   string    `json:"content"`
-	Keywords  []string  `json:"keywords"`
-	Source    string    `json:"source"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Version   int       `json:"version"`
+	ID         string    `json:"id"`
+	UserID     string    `json:"user_id"`
+	Type       string    `json:"type"`
+	Content    string    `json:"content"`
+	Keywords   []string  `json:"keywords"`
+	Source     string    `json:"source"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Version    int       `json:"version"`
+	MemoryLayer string   `json:"memory_layer,omitempty"` // L1/L2/L3 记忆分层
+	Confidence  float64  `json:"confidence,omitempty"`    // 0-1 置信度，L1 必须≥0.9
+	ValidUntil  time.Time `json:"valid_until,omitempty"`  // 过期时间，零值=永不过期
 }
 
 // esMemDoc 是 ES 内部文档，比 MemoryMeta 多 embedding 字段。
 type esMemDoc struct {
-	MemoryID  string    `json:"memory_id"`
-	UserID    string    `json:"user_id"`
-	Type      string    `json:"type"`
-	Content   string    `json:"content"`
-	Keywords  []string  `json:"keywords"`
-	Source    string    `json:"source"`
-	Status    string    `json:"status"`
-	Embedding []float64 `json:"embedding"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Version   int       `json:"version"`
+	MemoryID    string    `json:"memory_id"`
+	UserID      string    `json:"user_id"`
+	Type        string    `json:"type"`
+	Content     string    `json:"content"`
+	Keywords    []string  `json:"keywords"`
+	Source      string    `json:"source"`
+	Status      string    `json:"status"`
+	Embedding   []float64 `json:"embedding"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Version     int       `json:"version"`
+	MemoryLayer string    `json:"memory_layer,omitempty"`
+	Confidence  float64   `json:"confidence,omitempty"`
+	ValidUntil  time.Time `json:"valid_until,omitempty"`
 }
 
 // searchHits 通用 ES 搜索结果解析结构。

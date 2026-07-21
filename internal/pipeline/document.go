@@ -38,28 +38,46 @@ func NewDocumentIngestionChain(
 			text := string(data)
 			fileName, _ := ctx.Value(CtxFileName).(string)
 
-			// 1. Chunk with semantic boundary detection (paragraph + sentence).
-			results := chunker.ChunkSemantic(text, chunkSize, chunkOverlap)
+			// 1. Chunk with Parent/Child separation (production grade).
+			cfg := chunker.DefaultChunkConfig
+			if chunkSize > 0 {
+				cfg.ChildTokens = chunkSize
+			}
+			if chunkOverlap > 0 {
+				cfg.Overlap = chunkOverlap
+			}
+			results, err := chunker.ChunkWithParent(text, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("chunk: %w", err)
+			}
 			if len(results) == 0 {
 				return nil, fmt.Errorf("no content after chunking")
 			}
 
-			// 2. Create documents with IDs. All chunks share a parent document_id.
-			parentID := uuid.New().String()
+			// 2. Create documents with IDs.
+			// Child chunks → embedding for vector search; tagged with parent_id.
+			// Parent chunks → larger context blocks; also stored for retrieval-time expansion.
+			parentDocID := uuid.New().String()
 			now := time.Now().UTC()
 			docs := make([]*schema.Document, len(results))
 			for i, r := range results {
+				meta := map[string]any{
+					"document_id": parentDocID,
+					"chunk_index": i,
+					"title":       fileName,
+					"section":     r.Section,
+					"char_count":  len([]rune(r.Text)),
+					"token_count": r.TokenCnt,
+					"chunk_type":  r.ChunkType,
+					"created_at":  now.Format(time.RFC3339),
+				}
+				if r.ParentID != "" {
+					meta["parent_id"] = r.ParentID
+				}
 				docs[i] = &schema.Document{
 					ID:      uuid.New().String(),
 					Content: r.Text,
-					MetaData: map[string]any{
-						"document_id": parentID,
-						"chunk_index": i,
-						"title":       fileName,
-						"section":     r.Section,
-						"char_count":  len([]rune(r.Text)),
-						"created_at":  now.Format(time.RFC3339),
-					},
+					MetaData: meta,
 				}
 			}
 
@@ -89,7 +107,7 @@ func NewDocumentIngestionChain(
 			}
 
 			// Return parent document ID as the first element, followed by chunk IDs.
-			return append([]string{parentID}, chunkIDs...), nil
+			return append([]string{parentDocID}, chunkIDs...), nil
 		},
 	))
 

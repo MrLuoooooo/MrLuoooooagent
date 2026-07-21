@@ -205,6 +205,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		var full string
 		var toolCalls []schema.ToolCall
 		seenTools := make(map[string]bool)
+		phasePushed := make(map[string]bool)
+
+		// Phase: 开始分析
+		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【准备中】正在分析问题..."})
+		phasePushed["prepare"] = true
 
 		// 从队列结果通道读取，可能包含 position 更新、token 和最终结果
 		for result := range qReq.ResultCh {
@@ -227,8 +232,18 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 				if recvErr != nil {
 					break
 				}
+				// Phase: 首次收到 token → 进入推理阶段
+				if !phasePushed["reasoning"] && chunk.Content != "" {
+					phasePushed["reasoning"] = true
+					h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【推理中】正在生成回答..."})
+				}
 				for _, tc := range chunk.ToolCalls {
 					if !seenTools[tc.ID] {
+						// Phase: 工具调用 → 执行阶段
+						if !phasePushed["executing"] {
+							phasePushed["executing"] = true
+							h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【执行中】正在调用工具获取数据..."})
+						}
 						seenTools[tc.ID] = true
 						h.writeSSEEvent(c.Writer, model.StreamEvent{
 							Type:     model.EventToolCall,

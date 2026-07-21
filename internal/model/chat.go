@@ -38,5 +38,6 @@ const (
 	EventDone            = "done"
 	EventError           = "error"
 	EventConversationID  = "conversation_id"
-	EventWaiting         = "waiting"     // 排队等待中，content 含排队信息
+	EventWaiting         = "waiting"      // 排队等待中，content 含排队信息
+	EventPhase           = "phase"        // Agent 思考阶段，content 含当前步骤描述
 )

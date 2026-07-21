@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
@@ -106,6 +107,20 @@ func (c *Connector) connectOne(ctx context.Context, srv config.MCPServer) ([]too
 				zap.String("server", srv.Name))
 			continue
 		}
+		info, err := it.Info(ctx)
+		if err != nil {
+			c.logger.Warn("mcp: tool info failed, skipped",
+				zap.String("server", srv.Name), zap.Error(err))
+			continue
+		}
+		if warns := validateToolSchema(info); len(warns) > 0 {
+			for _, w := range warns {
+				c.logger.Warn("mcp: tool schema warning",
+					zap.String("server", srv.Name),
+					zap.String("tool", info.Name),
+					zap.String("issue", w))
+			}
+		}
 		tools = append(tools, &baseToolAdapter{it: it})
 	}
 	return tools, nil
@@ -192,4 +207,31 @@ func (a *baseToolAdapter) InvokableRun(ctx context.Context, args string, opts ..
 		return "", fmt.Errorf("mcp adapter: nil underlying tool")
 	}
 	return a.it.InvokableRun(ctx, args, opts...)
+}
+
+// validateToolSchema 校验 MCP 工具的 description 质量。
+// 返回警告列表（不阻止注册，仅告警）。
+func validateToolSchema(info *schema.ToolInfo) []string {
+	var warns []string
+
+	if info.Desc == "" {
+		warns = append(warns, "description is empty, LLM may not know when to call this tool")
+	}
+
+	if len([]rune(info.Desc)) > 0 && len([]rune(info.Desc)) < 10 {
+		warns = append(warns, fmt.Sprintf("description too short (%d chars): %q", len([]rune(info.Desc)), info.Desc))
+	}
+
+	genericWords := []string{"can help", "useful", "helpful", "a tool that", "does things"}
+	for _, w := range genericWords {
+		if containsWord(info.Desc, w) && len([]rune(info.Desc)) < 50 {
+			warns = append(warns, fmt.Sprintf("description is generic (%q), add specific function details", info.Desc))
+			break
+		}
+	}
+	return warns
+}
+
+func containsWord(text, word string) bool {
+	return strings.Contains(text, word)
 }
