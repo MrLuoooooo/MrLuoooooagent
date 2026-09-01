@@ -84,7 +84,7 @@ func newTestService(convSvc *mockConvSvc) *ChatService {
 	if convSvc == nil {
 		convSvc = &mockConvSvc{}
 	}
-	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, nil, nil, nil, nil, 32768, zap.NewNop())
+	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, nil, nil, nil, nil, 32768, nil, zap.NewNop())
 }
 
 func TestChatService_Chat_Persists(t *testing.T) {
@@ -123,7 +123,7 @@ func TestChatService_Chat_CacheHitStillPersists(t *testing.T) {
 	ctx := context.Background()
 	cache.Put(ctx, "分析茅台", "茅台是白酒龙头...")
 
-	svc := NewChatService(&mockRAG{}, &mockAgent{}, conv, nil, nil, nil, cache, 32768, zap.NewNop())
+	svc := NewChatService(&mockRAG{}, &mockAgent{}, conv, nil, nil, nil, cache, 32768, nil, zap.NewNop())
 	msg, err := svc.Chat(ctx, "分析茅台", "conv_1")
 	if err != nil {
 		t.Fatalf("chat: %v", err)
@@ -260,7 +260,7 @@ func TestChatService_Chat_RagChainError(t *testing.T) {
 	// 且降级消息必须落库（会话历史完整：用户消息 handler 落，助手回复 service 落）。
 	conv := &mockConvSvc{}
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, conv, nil, nil, nil, nil, 32768, zap.NewNop())
+	s := NewChatService(noRag, &mockAgent{}, conv, nil, nil, nil, nil, 32768, nil, zap.NewNop())
 	msg, err := s.Chat(context.Background(), "fail", "conv_degraded")
 	if err != nil {
 		t.Fatalf("degraded chat should not return error, got: %v", err)
@@ -286,7 +286,7 @@ func TestChatService_Chat_RagChainError(t *testing.T) {
 func TestChatService_ChatStream_RagChainError(t *testing.T) {
 	// RAG 流失败 → 单条降级消息的流，不报 error。
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, nil, 32768, zap.NewNop())
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, nil, 32768, nil, zap.NewNop())
 	sr, err := s.ChatStream(context.Background(), "fail")
 	if err != nil {
 		t.Fatalf("degraded stream should not return error, got: %v", err)

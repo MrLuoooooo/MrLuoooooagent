@@ -683,8 +683,8 @@ func ProvideSemanticCache(emb embedding.Embedder, cfg *config.Config) *service.S
 	return service.NewSemanticCache(emb, cfg.SemanticCache.Enabled, cfg.SemanticCache.Threshold, cfg.SemanticCache.Capacity, cfg.SemanticCache.TTL)
 }
 
-func ProvideChatService(mm *modelmanager.ModelManager, rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, semanticCache *service.SemanticCache, logger *zap.Logger) *service.ChatService {
-	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, semanticCache, mm.ContextWindow(), logger)
+func ProvideChatService(mm *modelmanager.ModelManager, rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, semanticCache *service.SemanticCache, cpStore *store.CheckpointStore, logger *zap.Logger) *service.ChatService {
+	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, semanticCache, mm.ContextWindow(), cpStore, logger)
 }
 
 func ProvideVectorDeleter(idx indexer.Indexer) service.VectorDeleter {
@@ -723,8 +723,8 @@ func ProvideConvService(cfg *config.Config, db *gorm.DB, esStore *store.ESConver
 	return service.NewConversationService(convStore, logger)
 }
 
-func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, cpStore *store.CheckpointStore, logger *zap.Logger) *handler.ChatHandler {
-	return handler.NewChatHandler(svc, convSvc, cpStore, logger)
+func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *handler.ChatHandler {
+	return handler.NewChatHandler(svc, convSvc, logger)
 }
 
 func ProvideCronScheduler(cfg *config.Config, agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], logger *zap.Logger, approvals *service.ApprovalStore) *scheduler.CronScheduler {

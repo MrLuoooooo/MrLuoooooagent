@@ -18,6 +18,13 @@ type MessagePersister interface {
 	SaveMessages(ctx context.Context, convID string, msgs []*schema.Message) error
 }
 
+// CheckpointCleaner ChatService 对断点存储的最小依赖（消费方定义接口）。
+// store.CheckpointStore 天然满足；Agent 执行完毕清理由 service 编排，
+// handler 不直接持有存储层。
+type CheckpointCleaner interface {
+	Delete(ctx context.Context, checkPointID string) error
+}
+
 // ChatService 把 handler 和 Eino 图/链解耦，管消息持久化 + 记忆提取 + 置信度 + 幻觉检测。
 type ChatService struct {
 	ragChain      compose.Runnable[string, *schema.Message]
@@ -30,6 +37,7 @@ type ChatService struct {
 	summaryCache  sync.Map
 	reqQueue      *RequestQueue  // 产品级排队系统
 	contextWindow int            // 当前模型上下文窗口（token），短期记忆预算的来源
+	cpStore       CheckpointCleaner // 可为 nil；Agent 完成后清理断点
 	logger        *zap.Logger
 }
 
@@ -43,6 +51,7 @@ func NewChatService(
 	confidenceSvc *ConfidenceService,
 	semanticCache *SemanticCache,
 	contextWindow int,
+	cpStore CheckpointCleaner,
 	logger *zap.Logger,
 ) *ChatService {
 	svc := &ChatService{
@@ -55,11 +64,25 @@ func NewChatService(
 		semanticCache: semanticCache,
 		reqQueue:      NewRequestQueue(logger),
 		contextWindow: contextWindow,
+		cpStore:       cpStore,
 		logger:        logger,
 	}
 	// 启动调度 goroutine
 	go svc.reqQueue.DrainAndDispatch(context.Background(), agentGraph)
 	return svc
+}
+
+// CleanupCheckpoint Agent 执行完毕后清理该会话的断点文件。
+// 断点只服务于中途恢复，回答完整产出后即失去价值，残留只会白占磁盘。
+// 清理失败仅记 WARN：下次同会话 Set 会覆盖旧断点，不影响功能。
+func (s *ChatService) CleanupCheckpoint(ctx context.Context, convID string) {
+	if s.cpStore == nil {
+		return
+	}
+	if err := s.cpStore.Delete(ctx, convID); err != nil {
+		s.logger.Warn("cleanup checkpoint",
+			zap.String("conv_id", convID), zap.Error(err))
+	}
 }
 
 // ragDegradedNotice RAG 检索链不可用时的统一降级文案。

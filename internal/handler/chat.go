@@ -15,7 +15,6 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
-	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -27,13 +26,12 @@ import (
 type ChatHandler struct {
 	svc     *service.ChatService
 	convSvc *service.ConversationService
-	cpStore *store.CheckpointStore
 	logger  *zap.Logger
 }
 
 // NewChatHandler —
-func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, cpStore *store.CheckpointStore, logger *zap.Logger) *ChatHandler {
-	return &ChatHandler{svc: svc, convSvc: convSvc, cpStore: cpStore, logger: logger}
+func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *ChatHandler {
+	return &ChatHandler{svc: svc, convSvc: convSvc, logger: logger}
 }
 
 // Chat 入口：解析请求 → 自动建会话 → load 历史 → 按 stream/agent 分发。
@@ -325,10 +323,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventSources, Sources: sseSources})
 		}
 
-		// Agent 完成：清理 Eino 的 checkpoint
-		if h.cpStore != nil {
-			_ = h.cpStore.Delete(ctx, convID)
-		}
+		// Agent 完成：清理 Eino 的 checkpoint（断点清理编排归 service）
+		h.svc.CleanupCheckpoint(ctx, convID)
 		return
 	}
 
@@ -342,10 +338,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		return
 	}
 
-	// Agent 完成：清理 Eino 的 checkpoint
-	if h.cpStore != nil {
-		_ = h.cpStore.Delete(ctx, convID)
-	}
+	// Agent 完成：清理 Eino 的 checkpoint（断点清理编排归 service）
+	h.svc.CleanupCheckpoint(ctx, convID)
 
 	c.JSON(http.StatusOK, model.OK(model.ChatResponseData{
 		Content: msg.Content, Role: string(msg.Role),
