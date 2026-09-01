@@ -7,24 +7,29 @@ import (
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaimodel"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/config"
-	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 )
+
+// CustomModelLister 是本包对自定义模型存储的最小依赖（消费方定义接口）。
+// service.ModelStore 天然满足，生产代码不 import service——component 不得反向依赖 service 层。
+type CustomModelLister interface {
+	All() []config.ModelEntry
+}
 
 // ModelManager包装ChatModel支持运行时切换模型。
 // 通过atomic.Value实现，从configmodel_list和customModelStore中查找模型。
 type ModelManager struct {
 	current     atomic.Value // stores model.ChatModel
 	cfg         *config.Config
-	customStore *service.ModelStore
+	customStore CustomModelLister
 	logger      *zap.Logger
 	tools       []*schema.ToolInfo
 	name        atomic.Value
 }
 
-func NewModelManager(initial model.ChatModel, cfg *config.Config, customStore *service.ModelStore, resolvedModel, resolvedBaseURL string, logger *zap.Logger) *ModelManager {
+func NewModelManager(initial model.ChatModel, cfg *config.Config, customStore CustomModelLister, resolvedModel, resolvedBaseURL string, logger *zap.Logger) *ModelManager {
 	mm := &ModelManager{cfg: cfg, customStore: customStore, logger: logger}
 	mm.current.Store(initial)
 	for _, e := range cfg.ModelProvider.ModelList {

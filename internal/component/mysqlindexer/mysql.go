@@ -9,7 +9,6 @@ import (
 	eino_schema "github.com/cloudwego/eino/schema"
 	"gorm.io/gorm"
 
-	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 )
 
@@ -73,4 +72,5 @@ func metaString(meta map[string]any, key string) string {
 }
 
 var _ indexer.Indexer = (*MySQLIndexer)(nil)
-var _ service.VectorDeleter = (*MySQLIndexer)(nil)
+// VectorDeleter 语义断言在 mysql_test.go（本地接口结构化校验），
+// 生产代码不 import service——component 不得反向依赖 service 层。
