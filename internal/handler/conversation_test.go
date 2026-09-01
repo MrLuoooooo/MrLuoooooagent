@@ -34,6 +34,11 @@ func (s *stubConversationStore) Create(_ context.Context, id, title string) erro
 	return nil
 }
 
+func (s *stubConversationStore) Exists(_ context.Context, id string) (bool, error) {
+	_, ok := s.creates[id]
+	return ok, nil
+}
+
 func (s *stubConversationStore) List(_ context.Context) ([]store.ConversationMeta, error) {
 	return nil, nil
 }

@@ -40,6 +40,14 @@ func (s *MemConvStore) Create(ctx context.Context, id, title string) error {
 	return nil
 }
 
+// Exists 判断会话是否存在（内存版直接查 map）。
+func (s *MemConvStore) Exists(ctx context.Context, id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.convs[id]
+	return ok, nil
+}
+
 func (s *MemConvStore) List(ctx context.Context) ([]ConversationMeta, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

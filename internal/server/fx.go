@@ -325,7 +325,17 @@ func (a *modelCallerAdapter) Generate(ctx context.Context, input []*eino_schema.
 	return a.mm.Generate(ctx, input)
 }
 
-func ProvideMemoryService(memStore *store.ESMemoryStore, mm *modelmanager.ModelManager, logger *zap.Logger, cfg *config.Config) *service.MemoryService {
+// ProvideMemoryStore 按 vector_store.type 分支（P1 §4.1）：
+// mysql → MySQLMemoryStore（关键词 LIKE 检索，不依赖 embedding）；其余 → ES 向量版（保留回退）。
+func ProvideMemoryStore(db *gorm.DB, esStore *store.ESMemoryStore, cfg *config.Config, logger *zap.Logger) service.MemoryStore {
+	if cfg.VectorStore.Type == "mysql" && db != nil {
+		logger.Info("memory store using mysql (keyword search, no embedding)")
+		return store.NewMySQLMemoryStore(db)
+	}
+	return esStore // 可能为 nil，由 ProvideMemoryService 统一降级
+}
+
+func ProvideMemoryService(memStore service.MemoryStore, mm *modelmanager.ModelManager, logger *zap.Logger, cfg *config.Config) *service.MemoryService {
 	topK := 5
 	if cfg.Memory.RetrievalTopK > 0 {
 		topK = cfg.Memory.RetrievalTopK
@@ -673,8 +683,8 @@ func ProvideSemanticCache(emb embedding.Embedder, cfg *config.Config) *service.S
 	return service.NewSemanticCache(emb, cfg.SemanticCache.Enabled, cfg.SemanticCache.Threshold, cfg.SemanticCache.Capacity, cfg.SemanticCache.TTL)
 }
 
-func ProvideChatService(rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, semanticCache *service.SemanticCache, logger *zap.Logger) *service.ChatService {
-	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, semanticCache, logger)
+func ProvideChatService(mm *modelmanager.ModelManager, rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, semanticCache *service.SemanticCache, logger *zap.Logger) *service.ChatService {
+	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, semanticCache, mm.ContextWindow(), logger)
 }
 
 func ProvideVectorDeleter(idx indexer.Indexer) service.VectorDeleter {
@@ -799,6 +809,7 @@ var Module = fx.Module("goagent",
 		ProvideMySQLDB,
 		ProvideESConversationStore,
 		ProvideESMemoryStore,
+		ProvideMemoryStore,
 		ProvideESFeedbackStore,
 		ProvideMemoryService,
 		ProvideFeedbackService,

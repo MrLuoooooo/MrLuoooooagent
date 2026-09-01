@@ -1,6 +1,7 @@
 import type { Message } from '../types/chat'
 import { Bot, User } from 'lucide-react'
 import ToolCallBadge from './ToolCallBadge'
+import SourcesList from './SourcesList'
 
 interface ChatBubbleProps {
   message: Message
@@ -48,6 +49,10 @@ export default function ChatBubble({ message, showAvatar, isStreaming }: ChatBub
             <ToolCallBadge key={i} toolCall={tc} />
           ))}
         </div>
+      )}
+
+      {!isUser && message.sources && message.sources.length > 0 && (
+        <SourcesList sources={message.sources} />
       )}
     </div>
   )

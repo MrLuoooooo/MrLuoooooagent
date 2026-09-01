@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -244,6 +245,22 @@ func (s *ESConversationStore) Create(ctx context.Context, id string, title strin
 		return fmt.Errorf("index conversation error: %s", res.String())
 	}
 	return nil
+}
+
+// Exists 判断会话元数据是否存在。404 视为不存在而非错误（业务正常态）。
+func (s *ESConversationStore) Exists(ctx context.Context, id string) (bool, error) {
+	res, err := s.client.Get(s.convIndex, id, s.client.Get.WithContext(ctx))
+	if err != nil {
+		return false, fmt.Errorf("get conversation: %w", err)
+	}
+	defer res.Body.Close()
+	if res.IsError() {
+		if res.StatusCode == http.StatusNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("get conversation error: %s", res.String())
+	}
+	return true, nil
 }
 
 // UpdateTitle updates a conversation's title and updated_at timestamp.

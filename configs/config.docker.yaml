@@ -78,7 +78,7 @@ agent:
   stock_system_prompt: |
     你是 GoAgent Pro 股票专精模式，专注于 A 股技术分析与基本面研究。分析框架：大势→行业→个股。每个数据点标注来源和时间。必须附风险声明。
 memory:
-  enabled: false
+  enabled: true
   retrieval_top_k: 5
 stock:
   data_dir: "/app/data/stocks"

@@ -19,6 +19,7 @@ type QueuedRequest struct {
 	Question  string
 	Priority  int
 	Ctx       context.Context
+	Opts      []compose.Option // per-request 注入项（如工具收集 callback）
 	ResultCh  chan *QueueResult
 	CreatedAt time.Time
 }
@@ -153,7 +154,7 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 	q.mu.Unlock()
 
 	q.logger.Debug("queue: dispatching", zap.String("conv", req.ConvID), zap.Int("priority", req.Priority))
-	stream, err := graph.Stream(ctx, req.UserMsg)
+	stream, err := graph.Stream(ctx, req.UserMsg, req.Opts...)
 	if err != nil {
 		req.ResultCh <- &QueueResult{Err: err, NodeID: "error"}
 		close(req.ResultCh)

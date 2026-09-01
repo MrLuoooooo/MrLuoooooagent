@@ -148,6 +148,20 @@ export function useChatStream(): UseChatStreamReturn {
             })
             break
 
+          case 'sources':
+            // 引用来源：附加到当前 assistant 消息，渲染"参考来源"区块
+            if (streamIdRef.current !== sid) return
+            setMessages((prev) => {
+              if (prev.length === 0) return prev
+              const lastIdx = prev.length - 1
+              return prev.map((msg, i) =>
+                i === lastIdx && msg.role === 'assistant'
+                  ? { ...msg, sources: evt.sources ?? [] }
+                  : msg,
+              )
+            })
+            break
+
           case 'error':
             if (streamIdRef.current !== sid) return
             setError(evt.content ?? '未知错误')

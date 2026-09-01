@@ -8,9 +8,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// ConversationStore 是 ESConversationStore 的持久化接口
+// ConversationStore 是会话持久化的最小契约（consumer 定义，provider 实现）。
 type ConversationStore interface {
 	Create(ctx context.Context, id string, title string) error
+	Exists(ctx context.Context, id string) (bool, error)
 	List(ctx context.Context) ([]store.ConversationMeta, error)
 	Load(ctx context.Context, conversationID string) ([]*schema.Message, error)
 	Save(ctx context.Context, conversationID string, msgs []*schema.Message) error
@@ -46,6 +47,25 @@ func (s *ConversationService) Create(ctx context.Context, title string) (string,
 		return "", err
 	}
 	return id, nil
+}
+
+// Ensure 保证指定 ID 的会话存在：不存在则创建，存在直接复用。
+// 用于客户端自带固定 ID 的场景（如股票页 stock_<code>）——此前这类 ID 没有
+// 会话元数据，消息落了库但会话列表看不到、也无法回看。
+// ID 格式由 handler 层校验，这里不做白名单。
+func (s *ConversationService) Ensure(ctx context.Context, id, title string) error {
+	exists, err := s.store.Exists(ctx, id)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	if err := s.store.Create(ctx, id, title); err != nil {
+		return err
+	}
+	s.logger.Info("conversation ensured", zap.String("conv_id", id), zap.String("title", title))
+	return nil
 }
 
 // List 列全部会话，最新在前。

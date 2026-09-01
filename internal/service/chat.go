@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -27,7 +28,8 @@ type ChatService struct {
 	confidenceSvc *ConfidenceService
 	semanticCache *SemanticCache // 可为 nil，命中时跳过 LLM
 	summaryCache  sync.Map
-	reqQueue      *RequestQueue // 产品级排队系统
+	reqQueue      *RequestQueue  // 产品级排队系统
+	contextWindow int            // 当前模型上下文窗口（token），短期记忆预算的来源
 	logger        *zap.Logger
 }
 
@@ -40,6 +42,7 @@ func NewChatService(
 	feedbackSvc *FeedbackService,
 	confidenceSvc *ConfidenceService,
 	semanticCache *SemanticCache,
+	contextWindow int,
 	logger *zap.Logger,
 ) *ChatService {
 	svc := &ChatService{
@@ -51,6 +54,7 @@ func NewChatService(
 		confidenceSvc: confidenceSvc,
 		semanticCache: semanticCache,
 		reqQueue:      NewRequestQueue(logger),
+		contextWindow: contextWindow,
 		logger:        logger,
 	}
 	// 启动调度 goroutine
@@ -190,52 +194,148 @@ func (s *ChatService) PendingCount() int {
 	return s.reqQueue.PendingCount()
 }
 
-// SummarizeHistory 对超出 maxKeep 的旧对话做摘要压缩。
-// 优先返回缓存；无缓存时异步生成，本次返回截断占位。
-func (s *ChatService) SummarizeHistory(convID string, messages []*schema.Message, maxKeep int) string {
-	if len(messages) <= maxKeep {
-		return ""
+// —— 短期记忆 token 预算裁剪（对标 CC autoCompact，文档 §3）——
+
+// reservedOutputTokens 给模型回复预留的输出预算。
+const reservedOutputTokens = 8 * 1024
+
+// minTokenBudget 预算下限：窗口再小也至少保留这么多，防止极端配置下历史全被裁光。
+const minTokenBudget = 4 * 1024
+
+// EstimateTokens 估算文本 token 数（纯函数）。
+// 中文约 1.5-2 字符/token，英文约 4 字符/token，混合文本按 1.6 字符/token 近似。
+// 先近似后校准（文档 §7），不为精确 tokenizer 阻塞进度。
+func EstimateTokens(s string) int {
+	runes := utf8.RuneCountInString(s)
+	if runes == 0 {
+		return 0
+	}
+	t := runes * 10 / 16 // ≈ runes / 1.6
+	if t == 0 {
+		t = 1
+	}
+	return t
+}
+
+// trimHistoryByToken 在 token 预算内保留"前缀摘要 + 最近消息"（纯函数，可单测）。
+// messages 必须按时间升序；从尾部向前累计 token，放不下的旧消息交给 summarize
+// 生成结构化摘要并注入头部（摘要本身计入语义而非预算——它必然远小于被裁内容）。
+// 预算内放得下时原样返回，不触发 summarize。
+func trimHistoryByToken(messages []*schema.Message, budget int, summarize func([]*schema.Message) string) []*schema.Message {
+	total := 0
+	for _, m := range messages {
+		total += EstimateTokens(m.Content)
+	}
+	if total <= budget || len(messages) == 0 {
+		return messages
 	}
 
-	// 有缓存直接用。
-	if cached, ok := s.summaryCache.Load(convID); ok {
-		return cached.(string)
+	// 从尾部向前找能整段放下的最近消息窗口
+	acc := 0
+	keep := len(messages) // [keep:] 保留
+	for i := len(messages) - 1; i >= 0; i-- {
+		t := EstimateTokens(messages[i].Content)
+		if acc+t > budget {
+			break
+		}
+		acc += t
+		keep = i
+	}
+	// 兜底：预算内连最后一条都放不下（如超长工具结果撑爆单条），
+	// 全部交给摘要——绝不原样返回超预算历史让模型上下文爆炸。
+	if keep >= len(messages) && summarize == nil {
+		return messages
 	}
 
-	oldMsgs := messages[:len(messages)-maxKeep]
+	trimmed := make([]*schema.Message, 0, len(messages)-keep+1)
+	if summarize != nil {
+		if summary := summarize(messages[:keep]); summary != "" {
+			trimmed = append(trimmed, &schema.Message{Role: schema.User, Content: summary})
+		}
+	}
+	trimmed = append(trimmed, messages[keep:]...)
+	return trimmed
+}
+
+// TrimHistory 在当前模型的 token 预算内裁剪会话历史。
+// 摘要是同步生成的（LLM 一次调用，命中缓存直接复用）——绝不返回占位符，
+// 不让模型在失忆状态下作答。落库不受影响：裁剪只影响发给模型的上下文。
+func (s *ChatService) TrimHistory(convID string, history []*schema.Message) []*schema.Message {
+	if len(history) == 0 {
+		return history
+	}
+	budget := s.contextWindow - reservedOutputTokens
+	if budget < minTokenBudget {
+		budget = minTokenBudget
+	}
+
+	trimmed := trimHistoryByToken(history, budget, func(old []*schema.Message) string {
+		return s.summarizeSync(convID, old)
+	})
+	if len(trimmed) != len(history) {
+		origTokens, trimTokens := 0, 0
+		for _, m := range history {
+			origTokens += EstimateTokens(m.Content)
+		}
+		for _, m := range trimmed {
+			trimTokens += EstimateTokens(m.Content)
+		}
+		s.logger.Info("history trimmed by token budget",
+			zap.String("conv_id", convID),
+			zap.Int("orig_msgs", len(history)),
+			zap.Int("trimmed_msgs", len(trimmed)),
+			zap.Int("orig_tokens", origTokens),
+			zap.Int("trimmed_tokens", trimTokens),
+			zap.Int("budget", budget),
+		)
+	}
+	return trimmed
+}
+
+// summarizeSync 同步生成结构化摘要（对标 CC compact prompt 四段精简版）。
+// 命中缓存直接返回；未命中调用 LLM，失败 WARN 后返回空串——宁可没有摘要，
+// 也不给失忆模型塞占位符。缓存键 convID:被裁消息数，裁剪边界变化自动失效。
+func (s *ChatService) summarizeSync(convID string, oldMsgs []*schema.Message) string {
 	if len(oldMsgs) == 0 {
 		return ""
 	}
-
-	// 异步生成摘要（不阻塞本次响应）。
-	go s.generateSummaryAsync(convID, oldMsgs)
-
-	// 本次退回简单截断提示。
-	return fmt.Sprintf("[省略了 %d 条历史消息]", len(oldMsgs))
-}
-
-// generateSummaryAsync 后台生成摘要并缓存。
-func (s *ChatService) generateSummaryAsync(convID string, oldMsgs []*schema.Message) {
-	oldText := s.messagesToPlainText(oldMsgs)
-	sysMsg := &schema.Message{
-		Role:    schema.System,
-		Content: "请用一段中文总结以下对话的关键信息和结论，不超过200字：",
+	cacheKey := fmt.Sprintf("%s:%d", convID, len(oldMsgs))
+	if cached, ok := s.summaryCache.Load(cacheKey); ok {
+		if str, ok := cached.(string); ok {
+			return str
+		}
 	}
-	userMsg := &schema.Message{Role: schema.User, Content: oldText}
-
 	if s.memorySvc == nil || s.memorySvc.model == nil {
-		return
+		return ""
 	}
+
+	sysMsg := &schema.Message{
+		Role: schema.System,
+		Content: `你是对话摘要器。把这段被裁剪的对话历史压缩成结构化摘要，供 AI 在后续对话中保持上下文连续性。严格按以下四段输出，用 markdown：
+## 目标与约束
+用户在这段对话中要完成什么，有什么明确要求或限制。
+## 关键事实与代码
+涉及的重要文件、数据、结论；代码片段和 file:line 引用必须原文保留（verbatim），禁止转述。
+## 当前进度
+这段对话结束推进到了哪一步，最近一次操作的状态。
+## 下一步
+接下来要做什么，严格对应当前任务的延续，禁止发散到旧任务。
+
+总长度不超过 600 字（代码引用不计入）。只输出摘要本身。`,
+	}
+	userMsg := &schema.Message{Role: schema.User, Content: s.messagesToPlainText(oldMsgs)}
 
 	resp, err := s.memorySvc.model.Generate(context.Background(), []*schema.Message{sysMsg, userMsg})
 	if err != nil {
-		s.logger.Warn("async summary generation failed", zap.Error(err))
-		return
+		s.logger.Warn("sync summary generation failed, trimming without summary",
+			zap.String("conv_id", convID),
+			zap.Int("dropped_msgs", len(oldMsgs)),
+			zap.Error(err))
+		return ""
 	}
-
-	summary := "## 历史摘要\n" + resp.Content
-	s.summaryCache.Store(convID, summary)
-	s.logger.Debug("summary cached", zap.String("conv_id", convID))
+	summary := resp.Content
+	s.summaryCache.Store(cacheKey, summary)
+	return summary
 }
 
 // ---- 闭环后处理 ----
@@ -300,12 +400,15 @@ func (s *ChatService) extractMemories(ctx context.Context, convID string, userMs
 	s.memorySvc.ExtractAndStore(ctx, "default", convID, messages)
 }
 
+// messagesToPlainText 拼接消息为摘要输入文本。
+// 工具结果截断到 1500 字符——摘要 prompt 要求代码 verbatim，200 字符会把
+// 关键代码截没，摘要等于没做。
 func (s *ChatService) messagesToPlainText(messages []*schema.Message) string {
 	var sb strings.Builder
 	for _, msg := range messages {
 		content := msg.Content
-		if len(content) > 500 {
-			content = content[:500] + "..."
+		if len(content) > 1500 {
+			content = content[:1500] + "..."
 		}
 		if content == "" && len(msg.ToolCalls) > 0 {
 			names := make([]string, len(msg.ToolCalls))

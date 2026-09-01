@@ -44,6 +44,30 @@ func NewModelManager(initial model.ChatModel, cfg *config.Config, customStore *s
 	return mm
 }
 
+// contextWindows 常见模型的上下文窗口映射（token 数）。
+// 未命中映射的自定义/本地模型走 defaultContextWindow——宁保守不大算错，
+// 预算偏小只多触发一次摘要，预算偏大会撑爆模型上下文。
+var contextWindows = map[string]int{
+	"deepseek-chat":     64 * 1024,
+	"deepseek-reasoner": 64 * 1024,
+	"qwen-plus":         128 * 1024,
+	"qwen-turbo":        128 * 1024,
+	"qwen-max":          32 * 1024,
+	"gpt-4o":            128 * 1024,
+	"gpt-4o-mini":       128 * 1024,
+}
+
+const defaultContextWindow = 32 * 1024
+
+// ContextWindow 返回当前模型的上下文窗口大小（token）。
+// 短期记忆 token 预算裁剪（service.TrimHistory）的预算来源。
+func (m *ModelManager) ContextWindow() int {
+	if w, ok := contextWindows[m.CurrentName()]; ok {
+		return w
+	}
+	return defaultContextWindow
+}
+
 // Switch 按名字切到新模型（先查 config model_list，再查自定义模型），重新 bind tools 后原子替换。
 func (m *ModelManager) Switch(modelName string) error {
 	entry := m.findEntry(modelName)

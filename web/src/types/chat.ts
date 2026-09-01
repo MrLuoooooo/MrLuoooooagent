@@ -5,12 +5,19 @@ export interface ChatRequest {
   agent?: boolean
 }
 
+export interface SourceRef {
+  title: string
+  url?: string
+  kind: 'web' | 'knowledge' | 'stock'
+}
+
 export interface StreamEvent {
-  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id' | 'waiting'
+  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id' | 'waiting' | 'phase' | 'sources'
   content?: string
   tool?: string
   tool_name?: string
   tool_args?: string
+  sources?: SourceRef[]
 }
 
 export interface Message {
@@ -18,6 +25,7 @@ export interface Message {
   role: 'user' | 'assistant'
   content: string
   toolCalls?: ToolCall[]
+  sources?: SourceRef[]
   createdAt: string
 }
 

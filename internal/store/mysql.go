@@ -53,7 +53,7 @@ func (mysqlFeedback) TableName() string { return "feedbacks" }
 
 // AutoMigrateMySQL 建表/迁移 + FULLTEXT(ngram) 索引，由注入层启动时调用。
 func AutoMigrateMySQL(db *gorm.DB) error {
-	if err := db.AutoMigrate(&mysqlConv{}, &mysqlMsg{}, &mysqlFeedback{}, &DocumentChunk{}, &mysqlDocMeta{}); err != nil {
+	if err := db.AutoMigrate(&mysqlConv{}, &mysqlMsg{}, &mysqlFeedback{}, &DocumentChunk{}, &mysqlDocMeta{}, &mysqlMemory{}); err != nil {
 		return err
 	}
 	return ensureFulltextIndexes(db)

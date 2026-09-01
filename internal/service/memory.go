@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"github.com/cloudwego/eino/schema"
@@ -155,76 +157,183 @@ func (s *MemoryService) RetrieveRelevant(ctx context.Context, userID, query stri
 	return mems
 }
 
+// maxMemoryInjectChars 注入 prompt 的记忆文本字符上限（P1 §4.3），超限丢弃低优先级并 WARN。
+const maxMemoryInjectChars = 2048
+
 // InjectIntoPrompt 分层检索记忆并拼成 prompt 文本块。
-// L1(用户画像)全量注入常驻优先；L2(事实)按最新时效过滤；L3(分析)低优先级标注主观。
+// 编排层：检索 + 调纯函数 + 丢弃告警；分层/老化/裁剪逻辑见 buildMemoryPrompt。
 func (s *MemoryService) InjectIntoPrompt(ctx context.Context, userID, currentQuery string) string {
 	mems := s.RetrieveRelevant(ctx, userID, currentQuery)
 	if len(mems) == 0 {
 		return ""
 	}
+	prompt, dropped := buildMemoryPrompt(mems, time.Now(), maxMemoryInjectChars)
+	if dropped > 0 {
+		s.logger.Warn("memory injection truncated by budget",
+			zap.Int("retrieved", len(mems)),
+			zap.Int("dropped", dropped),
+			zap.Int("max_chars", maxMemoryInjectChars),
+		)
+	}
+	return prompt
+}
 
-	var l1, l2, l3 []store.MemoryMeta
-	now := time.Now()
+// memEntry 记忆渲染单元：line 为最终注入行，layer 用于分组与优先级排序。
+type memEntry struct {
+	line       string
+	layer      string // "L1"/"L2"/"L3"
+	confidence float64
+	updatedAt  time.Time
+}
+
+var layerRank = map[string]int{"L1": 0, "L2": 1, "L3": 2}
+
+// buildMemoryPrompt 纯函数：分层过滤 + 时间老化警告 + 体积上限裁剪。
+// 超限时按"L1 > 置信度 > 新鲜度"优先级保留，返回 prompt 与被丢弃条数。
+func buildMemoryPrompt(mems []store.MemoryMeta, now time.Time, maxChars int) (string, int) {
+	if len(mems) == 0 {
+		return "", 0
+	}
+	var entries []memEntry
 	for _, m := range mems {
-		switch m.MemoryLayer {
-		case "L1":
-			if m.Confidence >= 0.9 {
-				l1 = append(l1, m)
-			}
-		case "L2":
-			// 时效三级过滤：fresh 直接用 / stale 标注 / invalid 跳过
+		line, layer, ok := memoryEntryLine(m, now)
+		if !ok {
+			continue
+		}
+		entries = append(entries, memEntry{line: line, layer: layer, confidence: m.Confidence, updatedAt: m.UpdatedAt})
+	}
+	if len(entries) == 0 {
+		return "", 0
+	}
+	kept, dropped := selectWithinBudget(entries, maxChars)
+	if len(kept) == 0 {
+		return "", dropped
+	}
+	return renderMemoryPrompt(kept), dropped
+}
+
+// memoryEntryLine 单条记忆 → 注入行。返回 ok=false 表示该记忆被分层规则过滤。
+func memoryEntryLine(m store.MemoryMeta, now time.Time) (line, layer string, ok bool) {
+	switch m.MemoryLayer {
+	case "L1":
+		if m.Confidence < 0.9 {
+			return "", "", false
+		}
+		layer = "L1"
+	case "L2":
+		// 时效过滤：invalid 直接不注入
+		if isInvalid(m.ValidUntil) {
+			return "", "", false
+		}
+		layer = "L2"
+	case "L3":
+		if m.Status != "active" {
+			return "", "", false
+		}
+		layer = "L3"
+	default:
+		// 旧数据没有 memory_layer 字段，按 type 推断
+		if m.Type == "preference" && m.Confidence >= 0.9 {
+			layer = "L1"
+		} else {
+			layer = "L2"
 			if isInvalid(m.ValidUntil) {
-				continue // invalid 不注入
-			}
-			if !m.ValidUntil.IsZero() && now.After(m.ValidUntil) {
-				m.Status = "stale"
-			}
-			l2 = append(l2, m)
-		case "L3":
-			if m.Status == "active" {
-				l3 = append(l3, m)
-			}
-		default:
-			// 旧数据没有 memory_layer 字段，按 type 推断
-			if m.Type == "preference" && m.Confidence >= 0.9 {
-				l1 = append(l1, m)
-			} else {
-				l2 = append(l2, m)
+				return "", "", false
 			}
 		}
 	}
 
+	line = "- " + m.Content
+	// L2 有效期标注（保留原语义）
+	if layer == "L2" && !m.ValidUntil.IsZero() && now.After(m.ValidUntil) {
+		line += " ⚠️数据可能已过期"
+	}
+	// 时间老化（对齐 CC memoryAge）：>1 天的记忆强制附加过期警告——
+	// 带 file:line 引用的陈旧记忆会被模型当"权威事实"，引用反而让错误更可信。
+	if age := now.Sub(m.UpdatedAt); age > 24*time.Hour {
+		line += fmt.Sprintf(" ⚠️此记忆是%s写入的，记忆是时间点的观察而非实时状态，涉及代码行为或 file:line 引用的描述可能已过期，断言前请对照当前实际核实。",
+			memoryAgeLabel(m.UpdatedAt, now))
+	}
+	return line, layer, true
+}
+
+// memoryAgeLabel 纯函数：记忆年龄 → "今天/昨天/N 天前"。
+func memoryAgeLabel(t, now time.Time) string {
+	d := now.Sub(t)
+	if d < 0 {
+		d = 0
+	}
+	days := int(d.Hours() / 24)
+	switch {
+	case days <= 0:
+		return "今天"
+	case days == 1:
+		return "昨天"
+	default:
+		return fmt.Sprintf("%d 天前", days)
+	}
+}
+
+// selectWithinBudget 按优先级（L1 > 置信度 > 新鲜度）贪心选取，字符总量不超 maxChars。
+// 头部标题与分组标题约占 100 字符，预算预留后按行累计。
+func selectWithinBudget(entries []memEntry, maxChars int) (kept []memEntry, dropped int) {
+	budget := maxChars - 100
+	if budget < 200 {
+		budget = 200 // 保底：配置误配过小值时至少能注入少量记忆
+	}
+	sorted := make([]memEntry, len(entries))
+	copy(sorted, entries)
+	sort.Slice(sorted, func(i, j int) bool {
+		ri, rj := layerRank[sorted[i].layer], layerRank[sorted[j].layer]
+		if ri != rj {
+			return ri < rj
+		}
+		if sorted[i].confidence != sorted[j].confidence {
+			return sorted[i].confidence > sorted[j].confidence
+		}
+		return sorted[i].updatedAt.After(sorted[j].updatedAt)
+	})
+	acc := 0
+	for _, e := range sorted {
+		n := utf8.RuneCountInString(e.line) + 1 // 换行
+		if acc+n > budget {
+			dropped++
+			continue // 该条放不下，但更小的低优先级条目仍有机会
+		}
+		acc += n
+		kept = append(kept, e)
+	}
+	return kept, dropped
+}
+
+// renderMemoryPrompt 按分层分组渲染（L1 → L2 → L3），空层跳过。
+func renderMemoryPrompt(kept []memEntry) string {
 	var sb strings.Builder
 	sb.WriteString("\n\n## 用户记忆\n")
-
-	// L1 画像：常驻最高优
-	if len(l1) > 0 {
-		sb.WriteString("\n### 你的偏好与画像（长期稳定，请务必遵守）\n")
-		for _, m := range l1 {
-			sb.WriteString(fmt.Sprintf("- %s\n", m.Content))
-		}
+	sections := []struct {
+		layer string
+		title string
+	}{
+		{"L1", "\n### 你的偏好与画像（长期稳定，请务必遵守）\n"},
+		{"L2", "\n### 已知事实\n"},
+		{"L3", "\n### 你之前表达的分析观点（主观推断，仅供参考）\n"},
 	}
-
-	// L2 事实：带时效标注
-	if len(l2) > 0 {
-		sb.WriteString("\n### 已知事实\n")
-		for _, m := range l2 {
-			staleMark := ""
-			if m.Status == "stale" {
-				staleMark = " ⚠️数据可能已过期"
+	for _, sec := range sections {
+		var lines []string
+		for _, e := range kept {
+			if e.layer == sec.layer {
+				lines = append(lines, e.line)
 			}
-			sb.WriteString(fmt.Sprintf("- %s%s\n", m.Content, staleMark))
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		sb.WriteString(sec.title)
+		for _, l := range lines {
+			sb.WriteString(l)
+			sb.WriteString("\n")
 		}
 	}
-
-	// L3 分析观点：低优先级标注主观
-	if len(l3) > 0 {
-		sb.WriteString("\n### 你之前表达的分析观点（主观推断，仅供参考）\n")
-		for _, m := range l3 {
-			sb.WriteString(fmt.Sprintf("- %s\n", m.Content))
-		}
-	}
-
 	return sb.String()
 }
 

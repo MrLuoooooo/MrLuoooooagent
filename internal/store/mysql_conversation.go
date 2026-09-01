@@ -34,6 +34,18 @@ func (s *MySQLConversationStore) Create(ctx context.Context, id, title string) e
 	return nil
 }
 
+// Exists 判断会话元数据是否存在。
+func (s *MySQLConversationStore) Exists(ctx context.Context, id string) (bool, error) {
+	var count int64
+	if err := s.db.WithContext(ctx).Model(&mysqlConv{}).
+		Where("id = ?", id).
+		Count(&count).Error; err != nil {
+		s.logger.Error("mysql exists conversation", zap.String("id", id), zap.Error(err))
+		return false, fmt.Errorf("mysql exists conversation: %w", err)
+	}
+	return count > 0, nil
+}
+
 // List 列全部会话元数据，最新在前。
 func (s *MySQLConversationStore) List(ctx context.Context) ([]ConversationMeta, error) {
 	var rows []mysqlConv

@@ -289,6 +289,15 @@ type stubConvStore struct {
 }
 
 func (s *stubConvStore) Create(_ context.Context, _, _ string) error { return s.createErr }
+func (s *stubConvStore) Exists(_ context.Context, id string) (bool, error) {
+	for _, m := range s.listMetas {
+		if m.ID == id {
+			return true, nil
+		}
+	}
+	return false, s.listErr
+}
+
 func (s *stubConvStore) List(_ context.Context) ([]store.ConversationMeta, error) {
 	return s.listMetas, s.listErr
 }

@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Send, Bot, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
 import StockChart from '../components/StockChart'
 import StockSearch from '../components/StockSearch'
+import SourcesList from '../components/SourcesList'
 import { fetchKLine, fetchRealtime } from '../api/stock'
 import type { KLineItem, StockRealtime } from '../types/stock'
+import type { SourceRef } from '../types/chat'
 import { chatStream } from '../api/chat'
 import type { StreamEvent } from '../types/chat'
 
@@ -11,6 +13,7 @@ interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   toolCalls?: { name: string; args: string; result?: string; status: 'running' | 'done' }[]
+  sources?: SourceRef[]
 }
 
 export default function StockPage() {
@@ -84,6 +87,8 @@ export default function StockPage() {
                   tc.status = 'done'
                 }
               }
+            } else if (evt.type === 'sources') {
+              last.sources = evt.sources || []
             }
             return updated
           })
@@ -188,6 +193,9 @@ export default function StockPage() {
                   {msg.content || (msg.role === 'assistant' && streaming ? (
                     <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse rounded-sm align-middle" />
                   ) : null)}
+                  {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
+                    <SourcesList sources={msg.sources} />
+                  )}
                 </div>
                 {msg.role === 'user' && (
                   <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">

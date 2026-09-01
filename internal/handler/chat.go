@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/callback"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
@@ -67,6 +68,21 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 		}
 		convID = id
 		isNew = true
+	} else {
+		// 客户端自带会话 ID（如股票页的 stock_<code> 固定会话）：
+		// 先校验格式防注入，再保证会话元数据存在——否则消息落库但会话
+		// 列表看不到、刷新后无法回看（此前股票对话丢记录的根因）。
+		if !convIDPattern.MatchString(convID) {
+			c.JSON(http.StatusBadRequest, model.Err(400, "非法会话 ID"))
+			return
+		}
+		title := "历史会话"
+		if code, ok := strings.CutPrefix(convID, "stock_"); ok {
+			title = "股票对话 " + code
+		}
+		if err := h.convSvc.Ensure(ctx, convID, title); err != nil {
+			h.logger.Warn("ensure conversation", zap.String("conv_id", convID), zap.Error(err))
+		}
 	}
 
 	var history []*schema.Message
@@ -89,17 +105,12 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 
 	if len(history) > 0 {
-		// 短期记忆压缩：超出 maxKeep 的旧消息异步做摘要，本次用截断。
-		const maxKeep = 30
-		if len(history) > maxKeep {
-			summary := h.svc.SummarizeHistory(convID, history, maxKeep)
-			history = history[len(history)-maxKeep:]
-			if summary != "" {
-				summaryMsg := &schema.Message{Role: schema.User, Content: summary}
-				history = append([]*schema.Message{summaryMsg}, history...)
-			}
+		// 短期记忆压缩：service 层按模型 token 预算裁剪 + 同步结构化摘要，
+		// 绝不返回占位符。handler 不保留任何裁剪算法（文档 §3.1 分层要求）。
+		history = h.svc.TrimHistory(convID, history)
+		if len(history) > 0 {
+			req.Question = prependHistory(req.Question, history)
 		}
-		req.Question = prependHistory(req.Question, history)
 	}
 
 	if req.Agent {
@@ -181,6 +192,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			prio = 1
 		}
 
+		// 工具调用收集器：eino branch 语义下工具消息不出流（tool_call/result 事件同理），
+		// 来源提取改走 per-request callback——bag 在图执行期间被填充，流结束后读取。
+		toolBag := &callback.ToolResultsBag{}
+		cb := callback.NewToolCollector(toolBag)
+
 		// 产品级排队：永远不拒绝，入队即返回排队状态
 		qReq := &service.QueuedRequest{
 			ConvID:   convID,
@@ -188,6 +204,7 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			Question: req.Question,
 			Priority: prio,
 			Ctx:      ctx,
+			Opts:     []compose.Option{compose.WithCallbacks(cb)},
 		}
 		qr := h.svc.QueueSubmit(qReq)
 
@@ -213,6 +230,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		var toolCalls []schema.ToolCall
 		seenTools := make(map[string]bool)
 		phasePushed := make(map[string]bool)
+		// 来源收集：ToolCallID → 工具名/参数，工具结果到达时提取引用来源
+		type toolMetaInfo struct{ name, args string }
+		toolMeta := make(map[string]toolMetaInfo)
+		var sources []service.SourceRef
+		seenSources := make(map[string]bool)
 
 		// Phase: 开始分析
 		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【准备中】正在分析问题..."})
@@ -255,6 +277,7 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 							h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【执行中】正在调用工具获取数据..."})
 						}
 						seenTools[tc.ID] = true
+						toolMeta[tc.ID] = toolMetaInfo{name: tc.Function.Name, args: tc.Function.Arguments}
 						h.writeSSEEvent(c.Writer, model.StreamEvent{
 							Type:     model.EventToolCall,
 							Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
@@ -264,6 +287,17 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 					}
 				}
 				if chunk.Role == schema.Tool {
+					// 从工具结果提取可引用来源（web 搜索/知识库/行情数据源）
+					meta, ok := toolMeta[chunk.ToolCallID]
+					if ok {
+						for _, ref := range service.ExtractSources(meta.name, meta.args, chunk.Content) {
+							key := ref.Kind + "|" + ref.URL + "|" + ref.Title
+							if !seenSources[key] {
+								seenSources[key] = true
+								sources = append(sources, ref)
+							}
+						}
+					}
 					h.writeSSEEvent(c.Writer, model.StreamEvent{
 						Type:    model.EventToolResult,
 						Content: toWindowsPath(chunk.Content),
@@ -283,6 +317,38 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			if err := h.svc.SaveAssistantMessage(convID, full, toolCalls); err != nil {
 				h.logger.Error("save agent assistant reply", zap.String("conv_id", convID), zap.Error(err))
 			}
+		}
+
+		// 来源引用：流结束后从收集器读取全部工具调用记录，提取可引用来源
+		// （web 搜索/知识库/行情数据源），done 前发一次，前端渲染"参考来源"区块。
+		for _, rec := range toolBag.Records {
+			args := rec.Args
+			if len(args) > 200 {
+				args = args[:200]
+			}
+			h.logger.Info("agent tool record",
+				zap.String("conv_id", convID),
+				zap.String("tool", rec.ToolName),
+				zap.String("args", args),
+				zap.Int("result_len", len(rec.Result)),
+			)
+			if rec.Result == "" && rec.ToolName == "" {
+				continue
+			}
+			for _, ref := range service.ExtractSources(rec.ToolName, rec.Args, rec.Result) {
+				key := ref.Kind + "|" + ref.URL + "|" + ref.Title
+				if !seenSources[key] {
+					seenSources[key] = true
+					sources = append(sources, ref)
+				}
+			}
+		}
+		if len(sources) > 0 {
+			sseSources := make([]model.SourceRef, len(sources))
+			for i, s := range sources {
+				sseSources[i] = model.SourceRef{Title: s.Title, URL: s.URL, Kind: s.Kind}
+			}
+			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventSources, Sources: sseSources})
 		}
 
 		// Agent 完成：清理 Eino 的 checkpoint
@@ -311,6 +377,10 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		Content: msg.Content, Role: string(msg.Role),
 	}))
 }
+
+// convIDPattern 客户端自带会话 ID 的白名单：字母/数字/下划线/连字符，1-64 位。
+// 防止任意字符串作为 ES 文档 ID 注入（如 stock_sh600519 合法，路径拼接类非法）。
+var convIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func (h *ChatHandler) setupSSE(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
@@ -370,12 +440,9 @@ func (h *ChatHandler) sendConvIDEvent(w io.Writer, convID string) {
 }
 
 func prependHistory(q string, history []*schema.Message) string {
-	const maxHistory = 20
+	// 总量裁剪由 service.TrimHistory 按 token 预算统一负责，这里不再按条数截断；
+	// 单条 2000 字符截断保留——防单条工具结果把 prompt 撑爆的渲染兜底。
 	const maxContentLen = 2000
-
-	if len(history) > maxHistory {
-		history = history[len(history)-maxHistory:]
-	}
 
 	truncate := func(s string) string {
 		if len(s) > maxContentLen {
