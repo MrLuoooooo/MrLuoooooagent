@@ -113,7 +113,7 @@ func TestAgent_ReActLoopWithToolCall(t *testing.T) {
 	g, err := NewAgentGraph(cm, tn, []*schema.ToolInfo{{
 		Name: "get_stock_price",
 		Desc: "查询股票实时价格",
-	}}, nil, nil, "你是金融分析助手", "", nil, NewRetryGate(3))
+	}}, nil, nil, nil, "你是金融分析助手", "", nil, NewRetryGate(3))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestAgent_ParseToolCallsFromXML(t *testing.T) {
 	g, err := NewAgentGraph(cm, tn, []*schema.ToolInfo{{
 		Name: "echo",
 		Desc: "echo text",
-	}}, nil, nil, "你是助手", "", nil, NewRetryGate(3))
+	}}, nil, nil, nil, "你是助手", "", nil, NewRetryGate(3))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestAgent_DirectAnswer_NoToolCall(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cm, tn, nil, nil, nil, "你是助手", "", nil, NewRetryGate(3))
+	g, err := NewAgentGraph(cm, tn, nil, nil, nil, nil, "你是助手", "", nil, NewRetryGate(3))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestAgent_MultipleToolCalls(t *testing.T) {
 	g, err := NewAgentGraph(cm, tn, []*schema.ToolInfo{
 		{Name: "get_price", Desc: "查股价"},
 		{Name: "get_revenue", Desc: "查营收"},
-	}, nil, nil, "你是分析助手", "", nil, NewRetryGate(3))
+	}, nil, nil, nil, "你是分析助手", "", nil, NewRetryGate(3))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestAgent_RetryGateBlocksRepeatedParamError(t *testing.T) {
 
 	g, err := NewAgentGraph(cm, tn, []*schema.ToolInfo{
 		{Name: "search", Desc: "搜索"},
-	}, nil, nil, "你是助手", "", nil, NewRetryGate(3))
+	}, nil, nil, nil, "你是助手", "", nil, NewRetryGate(3))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -361,7 +361,7 @@ func BenchmarkAgentGraph_ToolCalling(b *testing.B) {
 
 	g, _ := NewAgentGraph(cm, tn, []*schema.ToolInfo{
 		{Name: "echo", Desc: "echo"},
-	}, nil, nil, "", "", nil, NewRetryGate(3))
+	}, nil, nil, nil, "", "", nil, NewRetryGate(3))
 
 	msg := &schema.Message{Role: schema.User, Content: "test"}
 

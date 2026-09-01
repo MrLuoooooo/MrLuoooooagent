@@ -27,7 +27,7 @@ func TestNewRAGChain_Compiles(t *testing.T) {
 	tmpl := NewDefaultRAGTemplate()
 	cm := &fakeCM{}
 
-	chain, err := NewRAGChain(fr, tmpl, cm)
+	chain, err := NewRAGChain(fr, tmpl, cm, nil, 5, 15)
 	if err != nil {
 		t.Fatalf("NewRAGChain() error = %v", err)
 	}
@@ -44,7 +44,7 @@ func TestNewRAGChain_Invoke(t *testing.T) {
 	tmpl := NewDefaultRAGTemplate()
 	cm := &fakeCM{}
 
-	chain, err := NewRAGChain(fr, tmpl, cm)
+	chain, err := NewRAGChain(fr, tmpl, cm, nil, 5, 15)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

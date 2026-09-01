@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -83,7 +84,7 @@ func newTestService(convSvc *mockConvSvc) *ChatService {
 	if convSvc == nil {
 		convSvc = &mockConvSvc{}
 	}
-	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, nil, nil, nil, zap.NewNop())
+	return NewChatService(&mockRAG{}, &mockAgent{}, convSvc, nil, nil, nil, nil, zap.NewNop())
 }
 
 func TestChatService_Chat_Persists(t *testing.T) {
@@ -111,6 +112,34 @@ func TestChatService_Chat_Persists(t *testing.T) {
 	}
 	if rec.Msgs[0].Role != schema.Assistant || rec.Msgs[0].Content != "rag: hello" {
 		t.Errorf("assistant msg: got %+v", rec.Msgs[0])
+	}
+}
+
+// TestChatService_Chat_CacheHitStillPersists 语义缓存命中时也必须落库，
+// 否则会话历史断裂（只有用户消息、缺助手回答）。
+func TestChatService_Chat_CacheHitStillPersists(t *testing.T) {
+	conv := &mockConvSvc{}
+	cache := newTestCache(true) // fakeEmbedder: "分析茅台" → {1,0}
+	ctx := context.Background()
+	cache.Put(ctx, "分析茅台", "茅台是白酒龙头...")
+
+	svc := NewChatService(&mockRAG{}, &mockAgent{}, conv, nil, nil, nil, cache, zap.NewNop())
+	msg, err := svc.Chat(ctx, "分析茅台", "conv_1")
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if msg.Content != "茅台是白酒龙头..." {
+		t.Fatalf("want cached answer, got %q", msg.Content)
+	}
+
+	conv.mu.Lock()
+	defer conv.mu.Unlock()
+	if len(conv.saved) == 0 {
+		t.Fatal("cache hit must persist assistant message")
+	}
+	last := conv.saved[len(conv.saved)-1]
+	if last.ConvID != "conv_1" || len(last.Msgs) == 0 || last.Msgs[0].Content != "茅台是白酒龙头..." {
+		t.Fatalf("unexpected saved record: %+v", last)
 	}
 }
 
@@ -227,21 +256,38 @@ func TestChatService_SaveMessages_ReportsError(t *testing.T) {
 }
 
 func TestChatService_Chat_RagChainError(t *testing.T) {
-	// When the RAG chain itself fails, no save should occur
+	// RAG 链失败 → 降级消息而非 error（检索组件不可用不转 500），且不落 assistant 消息。
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, zap.NewNop())
-	_, err := s.Chat(context.Background(), "fail", "conv_no_save")
-	if err == nil {
-		t.Fatal("expected error from failing RAG chain")
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, nil, zap.NewNop())
+	msg, err := s.Chat(context.Background(), "fail", "conv_no_save")
+	if err != nil {
+		t.Fatalf("degraded chat should not return error, got: %v", err)
+	}
+	if msg == nil || !strings.Contains(msg.Content, "知识库检索服务暂时不可用") {
+		t.Fatalf("expected degraded message, got: %+v", msg)
 	}
 }
 
 func TestChatService_ChatStream_RagChainError(t *testing.T) {
+	// RAG 流失败 → 单条降级消息的流，不报 error。
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, zap.NewNop())
-	_, err := s.ChatStream(context.Background(), "fail")
-	if err == nil {
-		t.Fatal("expected error from failing RAG chain")
+	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, nil, zap.NewNop())
+	sr, err := s.ChatStream(context.Background(), "fail")
+	if err != nil {
+		t.Fatalf("degraded stream should not return error, got: %v", err)
+	}
+	if sr == nil {
+		t.Fatal("expected non-nil stream reader")
+	}
+	defer sr.Close()
+	for {
+		msg, err := sr.Recv()
+		if err != nil {
+			break
+		}
+		if !strings.Contains(msg.Content, "知识库检索服务暂时不可用") {
+			t.Fatalf("expected degraded content, got: %q", msg.Content)
+		}
 	}
 }
 

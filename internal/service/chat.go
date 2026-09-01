@@ -25,6 +25,7 @@ type ChatService struct {
 	memorySvc     *MemoryService
 	feedbackSvc   *FeedbackService
 	confidenceSvc *ConfidenceService
+	semanticCache *SemanticCache // 可为 nil，命中时跳过 LLM
 	summaryCache  sync.Map
 	reqQueue      *RequestQueue // 产品级排队系统
 	logger        *zap.Logger
@@ -38,6 +39,7 @@ func NewChatService(
 	memorySvc *MemoryService,
 	feedbackSvc *FeedbackService,
 	confidenceSvc *ConfidenceService,
+	semanticCache *SemanticCache,
 	logger *zap.Logger,
 ) *ChatService {
 	svc := &ChatService{
@@ -47,6 +49,7 @@ func NewChatService(
 		memorySvc:     memorySvc,
 		feedbackSvc:   feedbackSvc,
 		confidenceSvc: confidenceSvc,
+		semanticCache: semanticCache,
 		reqQueue:      NewRequestQueue(logger),
 		logger:        logger,
 	}
@@ -56,11 +59,35 @@ func NewChatService(
 }
 
 // Chat 走 RAG 链，回答完自动写 ES。
+// 非流式分支接入语义缓存：命中直接返回（零 LLM 调用），未命中生成后写入。
+// 注意：命中路径同样落库（会话历史必须完整），只是跳过 LLM/置信度/记忆提取。
 func (s *ChatService) Chat(ctx context.Context, question string, convID string) (*schema.Message, error) {
+	if s.semanticCache != nil {
+		if ans, hit := s.semanticCache.Get(ctx, question); hit {
+			hits, _ := s.semanticCache.Stats()
+			s.logger.Info("semantic cache hit",
+				zap.String("question", question),
+				zap.Int64("total_hits", hits),
+			)
+			msg := &schema.Message{Role: schema.Assistant, Content: ans}
+			if err := s.SaveAssistantMessage(convID, msg.Content, nil); err != nil {
+				s.logger.Error("persist cached assistant message", zap.String("conv_id", convID), zap.Error(err))
+			}
+			return msg, nil
+		}
+	}
 	msg, err := s.ragChain.Invoke(ctx, question)
 	if err != nil {
-		s.logger.Error("rag chain invoke failed", zap.Error(err))
-		return nil, err
+		// 降级：检索组件（ES/MySQL）不可用时不 500，回一段兜底消息。
+		// 日志保留完整错误供排查；产品化升级点是这里换成纯 LLM 直接回答。
+		s.logger.Error("rag chain invoke failed, degraded response", zap.Error(err))
+		return &schema.Message{
+			Role:    schema.Assistant,
+			Content: "⚠️ 知识库检索服务暂时不可用，本次回答未基于文档。请稍后重试，或直接描述你的问题。",
+		}, nil
+	}
+	if s.semanticCache != nil {
+		s.semanticCache.Put(ctx, question, msg.Content)
 	}
 	if err := s.SaveAssistantMessage(convID, msg.Content, nil); err != nil {
 		s.logger.Error("persist assistant message", zap.String("conv_id", convID), zap.Error(err))
@@ -72,8 +99,12 @@ func (s *ChatService) Chat(ctx context.Context, question string, convID string) 
 func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.ragChain.Stream(ctx, question)
 	if err != nil {
-		s.logger.Error("rag chain stream failed", zap.Error(err))
-		return nil, err
+		s.logger.Error("rag chain stream failed, degraded response", zap.Error(err))
+		degraded := &schema.Message{
+			Role:    schema.Assistant,
+			Content: "⚠️ 知识库检索服务暂时不可用，本次回答未基于文档。请稍后重试，或直接描述你的问题。",
+		}
+		return schema.StreamReaderFromArray([]*schema.Message{degraded}), nil
 	}
 	return stream, nil
 }

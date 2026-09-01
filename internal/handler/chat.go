@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/schema"
-	"github.com/gin-gonic/gin"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
+	"github.com/cloudwego/eino/compose"
+	"github.com/cloudwego/eino/schema"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"unicode/utf8"
 )
@@ -90,7 +90,7 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 
 	if len(history) > 0 {
 		// 短期记忆压缩：超出 maxKeep 的旧消息异步做摘要，本次用截断。
-		const maxKeep = 20
+		const maxKeep = 30
 		if len(history) > maxKeep {
 			summary := h.svc.SummarizeHistory(convID, history, maxKeep)
 			history = history[len(history)-maxKeep:]
@@ -193,9 +193,13 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 
 		h.setupSSE(c)
 
-		// 排队状态 → 推前端等待提示
+		// 排队状态 → 推前端等待提示（仅在有人排队时显示，避免"前面还有 0 人"）
 		if qr.NodeID == "queued" {
-			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %d 人，请稍候...", h.svc.PendingCount())})
+			if cnt := h.svc.PendingCount(); cnt > 0 {
+				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %d 人，请稍候...", cnt)})
+			} else {
+				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: "正在处理中..."})
+			}
 		}
 		if qr.NodeID == "coalesced" {
 			h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: "类似问题正在处理..."})

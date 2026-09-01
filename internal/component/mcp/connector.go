@@ -132,6 +132,8 @@ func (c *Connector) dial(ctx context.Context, srv config.MCPServer) (*client.Cli
 		return c.dialSSE(ctx, srv)
 	case "stdio":
 		return c.dialStdio(srv)
+	case "agent":
+		return nil, fmt.Errorf("agent-managed project (path: %s) — no auto-connect, Agent will read files on demand", srv.URL)
 	default:
 		return nil, fmt.Errorf("mcp: unknown transport %q", srv.Transport)
 	}

@@ -37,7 +37,8 @@ func NewCronScheduler(
 		approvals = service.NewApprovalStore("data")
 	}
 	cs := &CronScheduler{
-		cron:       cron.New(cron.WithLocation(time.Local)),
+		// WithSeconds 开启秒级支持，适配 "0 30 9 * * 1-5" 这类 6 字段表达式
+		cron:       cron.New(cron.WithLocation(time.Local), cron.WithSeconds()),
 		agentGraph: agentGraph,
 		logger:     logger,
 		approvals:  approvals,
@@ -51,6 +52,16 @@ func NewCronScheduler(
 	for _, job := range cfg.Cron.Jobs {
 		job := job
 		_, err := cs.cron.AddFunc(job.CronExpr, func() {
+			// cron job 跑在独立 goroutine，panic 会直接崩进程，必须拦截
+			defer func() {
+				if r := recover(); r != nil {
+					cs.logger.Error("cron: job panic recovered",
+						zap.String("name", job.Name),
+						zap.Any("err", r),
+						zap.Stack("stack"),
+					)
+				}
+			}()
 			cs.executeJob(job)
 		})
 		if err != nil {

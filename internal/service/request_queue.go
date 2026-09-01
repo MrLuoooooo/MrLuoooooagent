@@ -83,6 +83,15 @@ func (q *RequestQueue) Submit(req *QueuedRequest) *QueueResult {
 
 // DrainAndDispatch 阻塞运行调度器。
 func (q *RequestQueue) DrainAndDispatch(ctx context.Context, graph compose.Runnable[*schema.Message, *schema.Message]) {
+	// 最后兜底：理论上 processNext 已自行 recover，这里防止任何漏网 panic 让整个调度器 goroutine 退出
+	defer func() {
+		if r := recover(); r != nil {
+			q.logger.Error("queue: dispatcher goroutine panic recovered (should be unreachable)",
+				zap.Any("err", r),
+				zap.Stack("stack"),
+			)
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -94,6 +103,23 @@ func (q *RequestQueue) DrainAndDispatch(ctx context.Context, graph compose.Runna
 }
 
 func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*schema.Message, *schema.Message]) {
+	var req *QueuedRequest // 提前声明，供 defer 闭包捕获；panic 时关闭 ResultCh 防止前端阻塞
+	// goroutine 内 panic 会直接崩进程，必须拦截。panic 时关闭 ResultCh 避免前端 for-range 永久阻塞
+	defer func() {
+		if r := recover(); r != nil {
+			q.logger.Error("queue: processNext panic recovered",
+				zap.Any("err", r),
+				zap.Stack("stack"),
+			)
+			if req != nil {
+				select {
+				case <-ctx.Done():
+				default:
+					close(req.ResultCh)
+				}
+			}
+		}
+	}()
 	q.mu.Lock()
 	if len(q.pending) == 0 {
 		q.mu.Unlock()
@@ -106,7 +132,7 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 			best = i
 		}
 	}
-	req := q.pending[best]
+	req = q.pending[best]
 	q.pending = append(q.pending[:best], q.pending[best+1:]...)
 
 	dedupKey := req.ConvID + "::" + hashContent(req.Question)

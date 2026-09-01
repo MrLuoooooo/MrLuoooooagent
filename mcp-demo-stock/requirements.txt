@@ -1,0 +1,4 @@
+# MCP Stock Server - 股票数据查询
+# 安装: pip install mcp
+# 运行: python main.py
+mcp>=1.0.0

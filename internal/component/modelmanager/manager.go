@@ -64,6 +64,21 @@ func (m *ModelManager) Switch(modelName string) error {
 	return nil
 }
 
+// Derive 创建与指定模型同 provider 的独立 ChatModel 实例，用于子 agent。
+// 与主 agent 共享 ModelManager 时 BindTools 会互相覆盖（主 agent 绑全量、
+// 子 agent 绑子集），Derive 返回全新实例，绑定互不干扰。
+// modelName 为空时使用当前模型；不 BindTools，由调用方自行绑定。
+func (m *ModelManager) Derive(modelName string) (model.ChatModel, error) {
+	if modelName == "" {
+		modelName = m.CurrentName()
+	}
+	entry := m.findEntry(modelName)
+	if entry == nil {
+		return nil, fmt.Errorf("model %q not found", modelName)
+	}
+	return openaimodel.NewOpenAIChatModel(entry.APIKey, entry.ChatModel, entry.BaseURL, m.logger), nil
+}
+
 func (m *ModelManager) findEntry(name string) *config.ModelEntry {
 	for i := range m.cfg.ModelProvider.ModelList {
 		if m.cfg.ModelProvider.ModelList[i].Name == name {

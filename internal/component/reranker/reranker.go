@@ -6,10 +6,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
+
+// defaultMaxConcurrent 并发打分上限。
+// 底层模型通常自带限流（本项目为 HighConcurrencyManager），
+// 此信号量防止一次性打满 LLM 通道，也避免 30 篇候选串行 30-90s。
+const defaultMaxConcurrent = 8
 
 // Reranker 对候选文档按与 query 的相关度重排序。
 type Reranker interface {
@@ -17,10 +23,11 @@ type Reranker interface {
 }
 
 // LLMReranker 用 LLM 对每篇文档打分后重排。
-// 每篇文档独立调用一次评分 prompt，N 通常为 20-30，可控。
+// 打分并发执行（信号量限流），单篇失败降级 0 分不阻塞整体。
 type LLMReranker struct {
-	chatModel  model.ChatModel
-	maxRetries int
+	chatModel     model.ChatModel
+	maxRetries    int
+	maxConcurrent int
 }
 
 // NewLLMReranker 建一个 LLM 重排器。
@@ -30,12 +37,21 @@ func NewLLMReranker(cm model.ChatModel) *LLMReranker {
 		return nil
 	}
 	return &LLMReranker{
-		chatModel:  cm,
-		maxRetries: 1,
+		chatModel:     cm,
+		maxRetries:    1,
+		maxConcurrent: defaultMaxConcurrent,
 	}
 }
 
-// Rerank 逐文档评分，按分数降序取 topN。
+// WithMaxConcurrency 设置并发打分上限（默认 8），链式调用。
+func (r *LLMReranker) WithMaxConcurrency(n int) *LLMReranker {
+	if n > 0 {
+		r.maxConcurrent = n
+	}
+	return r
+}
+
+// Rerank 并发逐文档评分，按分数降序取 topN。
 func (r *LLMReranker) Rerank(ctx context.Context, query string, docs []*schema.Document, topN int) ([]*schema.Document, error) {
 	if r == nil || r.chatModel == nil || len(docs) == 0 {
 		return docs, nil
@@ -49,15 +65,39 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, docs []*schema.D
 		score float64
 	}
 
-	scoredDocs := make([]scored, 0, len(docs))
+	// 并发打分：信号量限流，结果按索引收集保证与输入对齐。
+	scores := make([]float64, len(docs))
+	sem := make(chan struct{}, r.maxConcurrent)
+	var wg sync.WaitGroup
 	for i, doc := range docs {
-		score, err := r.scoreDoc(ctx, query, doc.Content)
-		if err != nil {
-			// 单个打分失败不阻塞整体，给 0 分
-			score = 0
-			_ = i // suppress unused
+		if ctx.Err() != nil {
+			break // 上下文已取消，剩余文档按 0 分处理
 		}
-		scoredDocs = append(scoredDocs, scored{doc: doc, score: score})
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, content string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			// panic 保护：上游模型库异常时该篇记 0 分，不炸整个进程
+			//（goroutine panic 无法被外层 recover 接住，必须就地恢复）。
+			defer func() {
+				if p := recover(); p != nil {
+					scores[idx] = 0
+				}
+			}()
+			score, err := r.scoreDoc(ctx, query, content)
+			if err != nil {
+				// 单个打分失败不阻塞整体，给 0 分
+				score = 0
+			}
+			scores[idx] = score
+		}(i, doc.Content)
+	}
+	wg.Wait()
+
+	scoredDocs := make([]scored, len(docs))
+	for i, doc := range docs {
+		scoredDocs[i] = scored{doc: doc, score: scores[i]}
 	}
 
 	sort.Slice(scoredDocs, func(i, j int) bool {

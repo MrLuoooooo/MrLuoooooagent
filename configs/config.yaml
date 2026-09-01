@@ -33,6 +33,11 @@ vector_store:
     doc_index_name: "goagent_documents"
     username: ""
     password: ""
+mysql:
+  enabled: true
+  dsn: "root:123456@tcp(127.0.0.1:3306)/goagent?charset=utf8mb4&parseTime=True&loc=Local"
+  max_open_conns: 20
+  max_idle_conns: 5
 document:
   max_file_size: 10485760
   allowed_types:
@@ -48,16 +53,21 @@ search:
   engine: "google"
 conversation:
   max_history: 20
-  storage_type: "es"
+  storage_type: "mysql"   # mysql | es | memory；主库选型开关，改完重启生效
 memory:
   enabled: true
   retrieval_top_k: 5
 retrieval:
   top_k: 10
-  candidate_top_k: 30
+  candidate_top_k: 15
   score_threshold: 0.3
-  hybrid_enabled: false
-  reranker_enabled: false
+  hybrid_enabled: true     # 混合检索：kNN + BM25 + RRF 多路召回融合
+  reranker_enabled: true   # LLM 重排：并发打分（reranker.go 已并发化），候选 15 控成本
+semantic_cache:
+  enabled: true
+  threshold: 0.92          # 余弦相似度命中阈值
+  capacity: 1024           # LRU 容量
+  ttl: 10m                 # 条目有效期
 log:
   level: "debug"
   file_path: "./logs/goagent.log"
@@ -197,3 +207,49 @@ alert:
 mcp:
   enabled: false
   servers: []
+sub_agents:
+  enabled: true
+  agents:
+    - name: "stock_analyst"
+      enabled: true
+      prompt: |
+        你是 GoAgentPro 的股票分析专家子代理，专注于 A 股技术分析与基本面研究。
+        你的工具集只有股票相关工具，不要尝试其他操作。
+        分析框架：先查大盘（sh000001/sz399001）判断方向 → 确认行业 → 技术面+基本面+资金面。
+        每个数据点必须标注来源与时间，禁止编造数值，禁止给出买卖建议和具体目标价。
+        风险提示固定格式："⚠️ 以上分析基于历史数据和公开信息，不构成投资建议。股市有风险，投资需谨慎。"
+      model: ""
+      tools:
+        - "get_stock_realtime"
+        - "get_stock_kline"
+        - "stock_search"
+        - "stock_list"
+        - "calculate_indicator"
+        - "get_financial_report"
+        - "get_market_news"
+        - "screen_stocks"
+        - "backtest"
+        - "stock_index"
+      timeout: 90s
+      max_run_steps: 20
+    - name: "code_engineer"
+      enabled: true
+      prompt: |
+        你是 GoAgentPro 的代码编程专家子代理，负责写代码、改代码、跑命令、排查问题。
+        工作目录操作规则：创建文件用 write_file，修改用 edit_file，执行命令用 bash，删除前确认。
+        输出要求：直接给出可运行的代码与命令，不输出完整文件内容作为回复（用工具落盘后告知路径）。
+      model: ""
+      tools:
+        - "read_file"
+        - "write_file"
+        - "edit_file"
+        - "delete_file"
+        - "list_directory"
+        - "create_directory"
+        - "search_files"
+        - "get_file_info"
+        - "bash"
+        - "write_and_execute"
+        - "web_search"
+      timeout: 90s
+      max_run_steps: 30

@@ -13,13 +13,19 @@ model_provider:
   model_list:
     - name: "deepseek-chat"
       provider: "openai"
-      display: "DeepSeek Chat"
+      chat_model: "deepseek-chat"
+      base_url: "https://api.deepseek.com/v1"
+      api_key: ""   # 走 env 继承 cloud key
     - name: "qwen-plus"
       provider: "openai"
-      display: "通义千问 Plus"
+      chat_model: "qwen-plus"
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api_key: ""   # 走 env 继承 cloud key
     - name: "qwen3.5:9b"
       provider: "ollama"
-      display: "Qwen 3.5 9B (本地)"
+      chat_model: "qwen3.5:9b"
+      base_url: "http://host.docker.internal:11434/v1"
+      api_key: "ollama"
   local:
     enabled: true
     base_url: "http://host.docker.internal:11434"
@@ -34,7 +40,9 @@ model_provider:
     chat_model: "deepseek-chat"
     embedding_model: ""
 vector_store:
-  type: "elasticsearch"
+  # mysql → RAG 走 MySQL FULLTEXT(ngram) + LLM reranker（不依赖 embedding 服务）；
+  # elasticsearch → 向量检索（保留回退分支，见 fx.ProvideRetriever）
+  type: "mysql"
   elasticsearch:
     addresses:
       - "http://elasticsearch:9200"
@@ -59,7 +67,12 @@ search:
   engine: "google"
 conversation:
   max_history: 20
-  storage_type: "es"
+  storage_type: "mysql"
+mysql:
+  enabled: true
+  dsn: ""   # 从环境变量 MYSQL_* 拼接，见 internal/config/config.go
+  max_open_conns: 20
+  max_idle_conns: 5
 agent:
   system_prompt: "You are GoAgent Pro. When user asks to write/create a file, call write_file(path=\"filename\", content=\"...\") immediately. Do not read existing files first. Reply in Chinese after tool completion."
   stock_system_prompt: |

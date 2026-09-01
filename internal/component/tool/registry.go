@@ -36,6 +36,31 @@ func RegisteredTools() []Tool {
 	return globalRegistry.List()
 }
 
+// RegisteredToolsByNames 按工具名白名单过滤，用于子 agent 工具集隔离。
+// 空白名单返回空切片；不存在的名字被忽略（调用方可据此判断配置错误）。
+func RegisteredToolsByNames(names []string) []Tool {
+	if len(names) == 0 {
+		return nil
+	}
+	ctx := context.Background()
+	all := globalRegistry.List()
+	want := make(map[string]bool, len(names))
+	for _, n := range names {
+		want[n] = true
+	}
+	out := make([]Tool, 0, len(names))
+	for _, t := range all {
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		if want[info.Name] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // ToolInfos returns the ToolInfo schemas for all registered tools.
 func ToolInfos(ctx context.Context) ([]*schema.ToolInfo, error) {
 	return globalRegistry.Info(ctx)

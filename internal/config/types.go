@@ -8,6 +8,7 @@ type Config struct {
 	Auth          AuthConfig          `mapstructure:"auth"`
 	ModelProvider ModelProviderConfig `mapstructure:"model_provider"`
 	VectorStore   VectorStoreConfig   `mapstructure:"vector_store"`
+	MySQL         MySQLConfig         `mapstructure:"mysql"`
 	Document      DocumentConfig      `mapstructure:"document"`
 	Conversation  ConversationConfig  `mapstructure:"conversation"`
 	Search        SearchConfig        `mapstructure:"search"`
@@ -19,6 +20,42 @@ type Config struct {
 	Retrieval     RetrievalConfig     `mapstructure:"retrieval"`
 	Alert         AlertConfig         `mapstructure:"alert"`
 	MCP           MCPConfig           `mapstructure:"mcp"`
+	SubAgents     SubAgentsConfig     `mapstructure:"sub_agents"`
+	SemanticCache SemanticCacheConfig `mapstructure:"semantic_cache"`
+}
+
+// SemanticCacheConfig 语义缓存配置（非流式 RAG 分支）。
+type SemanticCacheConfig struct {
+	Enabled   bool          `mapstructure:"enabled"`
+	Threshold float64       `mapstructure:"threshold"` // 余弦相似度命中阈值，默认 0.92
+	Capacity  int           `mapstructure:"capacity"`  // LRU 容量，默认 1024
+	TTL       time.Duration `mapstructure:"ttl"`       // 条目有效期，默认 10m
+}
+
+// SubAgentsConfig 多 agent 委派配置。
+type SubAgentsConfig struct {
+	Enabled bool             `mapstructure:"enabled"`
+	Agents  []SubAgentConfig `mapstructure:"agents"`
+}
+
+// SubAgentConfig 单个子 agent 配置。
+type SubAgentConfig struct {
+	Name        string        `mapstructure:"name"`
+	Prompt      string        `mapstructure:"prompt"`
+	Enabled     bool          `mapstructure:"enabled"`
+	Model       string        `mapstructure:"model"` // 空则用当前模型
+	Tools       []string      `mapstructure:"tools"` // 工具名白名单，子 agent 只见这些
+	Timeout     time.Duration `mapstructure:"timeout"`
+	MaxRunSteps int           `mapstructure:"max_run_steps"`
+}
+
+// MySQLConfig holds business primary database configuration.
+// 业务主库（会话/消息/反馈）；向量检索数据仍走 ES。
+type MySQLConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	DSN          string `mapstructure:"dsn"`
+	MaxOpenConns int    `mapstructure:"max_open_conns"`
+	MaxIdleConns int    `mapstructure:"max_idle_conns"`
 }
 
 // StockConfig holds stock data middleware configuration.

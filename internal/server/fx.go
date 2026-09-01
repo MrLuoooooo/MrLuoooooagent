@@ -21,6 +21,8 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/esindexer"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/esretriever"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/mysqlindexer"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/mysqlretriever"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaiembed"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/openaimodel"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/reranker"
@@ -45,6 +47,8 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/store"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 type ResolvedConfig struct {
@@ -236,14 +240,51 @@ func ProvideESClient(cfg *config.Config) (*elasticsearch.Client, error) {
 	})
 }
 
-func ProvideIndexer(client *elasticsearch.Client, emb embedding.Embedder, ec *ResolvedEmbeddingConfig, cfg *config.Config) indexer.Indexer {
+// ProvideIndexer 按 vector_store.type 分支：
+// mysql → FULLTEXT chunk 写入器（不走向量）；其余 → ES 向量索引（保留回退）。
+func ProvideIndexer(db *gorm.DB, client *elasticsearch.Client, emb embedding.Embedder, ec *ResolvedEmbeddingConfig, cfg *config.Config) indexer.Indexer {
+	if cfg.VectorStore.Type == "mysql" && db != nil {
+		return mysqlindexer.NewMySQLIndexer(db)
+	}
 	dim := 768
 	if ec != nil && ec.Dimension > 0 { dim = ec.Dimension }
 	return esindexer.NewElasticsearchIndexer(client, emb, cfg.VectorStore.Elasticsearch.IndexName, dim)
 }
 
-func ProvideRetriever(client *elasticsearch.Client, emb embedding.Embedder, cfg *config.Config) retriever.Retriever {
+// ProvideRetriever 按 vector_store.type 分支：
+// mysql → FULLTEXT(ngram) 全文检索（召回后仍走现有 LLM reranker 精排）；
+// 其余 → ES 向量检索（保留回退）。db 不可用时同样回退 ES。
+func ProvideRetriever(db *gorm.DB, client *elasticsearch.Client, emb embedding.Embedder, cfg *config.Config) retriever.Retriever {
+	if cfg.VectorStore.Type == "mysql" && db != nil {
+		return mysqlretriever.NewMySQLRetriever(db, cfg.Retrieval.TopK)
+	}
 	return esretriever.NewESRetriever(client, emb, cfg.VectorStore.Elasticsearch.IndexName, cfg.Retrieval.TopK, cfg.Retrieval.CandidateTopK, cfg.Retrieval.ScoreThreshold, cfg.Retrieval.HybridEnabled)
+}
+
+// ProvideMySQLDB 按配置连接业务主库。
+// 连接失败 → 返回 nil 降级（ES/内存兜底，不阻断启动）；
+// 迁移失败 → 返回 error（表结构问题属代码缺陷，暴露而非吞掉）。
+func ProvideMySQLDB(cfg *config.Config, logger *zap.Logger) (*gorm.DB, error) {
+	if !cfg.MySQL.Enabled || cfg.MySQL.DSN == "" {
+		return nil, nil
+	}
+	db, err := gorm.Open(mysql.Open(cfg.MySQL.DSN), &gorm.Config{})
+	if err != nil {
+		logger.Warn("mysql connect failed, falling back to es/in-memory stores", zap.Error(err))
+		return nil, nil
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		logger.Warn("mysql pool init failed, falling back to es/in-memory stores", zap.Error(err))
+		return nil, nil
+	}
+	sqlDB.SetMaxOpenConns(cfg.MySQL.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.MySQL.MaxIdleConns)
+	if err := store.AutoMigrateMySQL(db); err != nil {
+		return nil, fmt.Errorf("mysql auto migrate: %w", err)
+	}
+	logger.Info("mysql connected as business primary store")
+	return db, nil
 }
 
 func ProvideESConversationStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESConversationStore, error) {
@@ -297,6 +338,10 @@ func ProvideMemoryService(memStore *store.ESMemoryStore, mm *modelmanager.ModelM
 }
 
 func ProvideDocumentStore(client *elasticsearch.Client, cfg *config.Config, logger *zap.Logger) (*store.ESDocumentStore, error) {
+	// mysql 模式文档元数据走 MySQLDocumentStore（ProvideDocStoreAdapter 分支），不碰 ES。
+	if cfg.VectorStore.Type == "mysql" {
+		return nil, nil
+	}
 	s, err := store.NewESDocumentStore(client, cfg.VectorStore.Elasticsearch.DocIndexName, logger)
 	if err != nil {
 		logger.Warn("es document store unavailable", zap.Error(err))
@@ -305,27 +350,57 @@ func ProvideDocumentStore(client *elasticsearch.Client, cfg *config.Config, logg
 	return s, nil
 }
 
-type docStoreAdapter struct{ es *store.ESDocumentStore }
+// docMetaBackend 抽象 ES / MySQL 两种文档元数据后端，store 不能反向 import service
+// （service → store），故在此层做 DocumentMeta → service.DocMeta 的字段映射。
+type docMetaBackend interface {
+	Save(ctx context.Context, doc store.DocumentMeta) error
+	Delete(ctx context.Context, id string) error
+	List(ctx context.Context) ([]store.DocumentMeta, error)
+}
+
+type docStoreAdapter struct{ backend docMetaBackend }
 
 func (a *docStoreAdapter) Save(ctx context.Context, doc service.DocMeta) error {
-	return a.es.Save(ctx, store.DocumentMeta{ID: doc.ID, Filename: doc.Filename, ChunkCount: doc.ChunkCount, CreatedAt: doc.CreatedAt, Content: doc.Content})
+	return a.backend.Save(ctx, store.DocumentMeta{ID: doc.ID, Filename: doc.Filename, ChunkCount: doc.ChunkCount, CreatedAt: doc.CreatedAt, Content: doc.Content})
 }
-func (a *docStoreAdapter) Delete(ctx context.Context, id string) error { return a.es.Delete(ctx, id) }
+func (a *docStoreAdapter) Delete(ctx context.Context, id string) error { return a.backend.Delete(ctx, id) }
 func (a *docStoreAdapter) List(ctx context.Context) ([]service.DocMeta, error) {
-	docs, err := a.es.List(ctx)
+	docs, err := a.backend.List(ctx)
 	if err != nil { return nil, err }
 	result := make([]service.DocMeta, len(docs))
 	for i, d := range docs { result[i] = service.DocMeta{ID: d.ID, Filename: d.Filename, ChunkCount: d.ChunkCount, CreatedAt: d.CreatedAt, Content: d.Content} }
 	return result, nil
 }
 
-func ProvideDocStoreAdapter(es *store.ESDocumentStore) service.DocStore { return &docStoreAdapter{es: es} }
+// ProvideDocStoreAdapter 按 vector_store.type 分支提供文档元数据存储：
+// mysql → MySQLDocumentStore；es 可用 → ES 适配器；都不可用 → nil
+// （DocumentService 对 nil docStore 有空值守卫，功能降级而非 panic）。
+func ProvideDocStoreAdapter(db *gorm.DB, es *store.ESDocumentStore, cfg *config.Config, logger *zap.Logger) service.DocStore {
+	if cfg.VectorStore.Type == "mysql" && db != nil {
+		logger.Info("document meta store: mysql")
+		return &docStoreAdapter{backend: store.NewMySQLDocumentStore(db)}
+	}
+	if es != nil {
+		return &docStoreAdapter{backend: es}
+	}
+	logger.Warn("document meta store unavailable, document listing disabled")
+	return nil
+}
 
-func ProvideReranker(cm model.ChatModel, cfg *config.Config) reranker.Reranker {
+// ProvideReranker 用独立模型实例做重排打分。
+// 不复用主 agent 的共享限流预算（否则重排的并发打分与主 LLM 互相抢 qps），
+// Derive 派生独立实例并包一层独立的 HighConcurrencyManager（4 并发 / 5 qps）。
+func ProvideReranker(mm *modelmanager.ModelManager, cfg *config.Config, logger *zap.Logger) reranker.Reranker {
 	if !cfg.Retrieval.RerankerEnabled {
 		return nil
 	}
-	return reranker.NewLLMReranker(cm)
+	dm, err := mm.Derive("")
+	if err != nil {
+		logger.Warn("reranker model derive failed, reranking disabled", zap.Error(err))
+		return nil
+	}
+	limited := modelmanager.NewHighConcurrencyManager(dm, 4, 5, logger)
+	return reranker.NewLLMReranker(limited)
 }
 
 func ProvideRAGChain(cm model.ChatModel, rd retriever.Retriever, rr reranker.Reranker, cfg *config.Config) (compose.Runnable[string, *eino_schema.Message], error) {
@@ -361,11 +436,26 @@ func ProvideStockDB(cfg *config.Config, logger *zap.Logger) (stockdb.StockDB, er
 		return nil, err
 	}
 	// 首次启动如果数据库为空，后台异步同步。
+	// 容器刚起时 DNS/外网可能未就绪，带 3 次退避重试，避免瞬时网络错误留空表到下次重启。
 	if sdb.Count() == 0 {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.Error("stock db: 首次同步 panic recovered", zap.Any("err", r), zap.Stack("stack"))
+				}
+			}()
 			logger.Info("stock db: 首次同步，拉取全市场股票列表...")
-			if err := sdb.Refresh(); err != nil {
-				logger.Error("stock db: 同步失败", zap.Error(err))
+			var err error
+			for attempt := 1; attempt <= 3; attempt++ {
+				if err = sdb.Refresh(); err == nil {
+					break
+				}
+				logger.Warn("stock db: 同步失败，准备重试",
+					zap.Int("attempt", attempt), zap.Error(err))
+				time.Sleep(time.Duration(attempt*5) * time.Second)
+			}
+			if err != nil {
+				logger.Error("stock db: 同步失败（已重试 3 次）", zap.Error(err))
 			} else {
 				logger.Info("stock db: 同步完成", zap.Int("count", sdb.Count()))
 			}
@@ -385,9 +475,13 @@ func ProvideEastMoneyClient(logger *zap.Logger) *stockapi.EastMoneyClient {
 	return stockapi.NewEastMoneyClient(base, "http://push2.eastmoney.com/api/qt/stock/get")
 }
 
-func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB, emClient *stockapi.EastMoneyClient) *ToolRegistry {
+func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *eino_schema.Message], collector *stock.Collector, stockDB stockdb.StockDB, emClient *stockapi.EastMoneyClient, delegate *tool.AgentDelegateTool) *ToolRegistry {
 	wrap := tool.WrapWithTimeoutBreaker
 	wcfg := tool.DefaultWrapperConfig
+	// 委派工具不走默认 15s wrapper：子 agent 多轮工具调用必然超时，超时由工具自管。
+	if delegate != nil {
+		tool.Register(delegate)
+	}
 	tool.Register(wrap(&tool.ReadFileTool{}, wcfg))
 	tool.Register(wrap(&tool.WriteFileTool{}, wcfg))
 	tool.Register(wrap(&tool.EditFileTool{}, wcfg))
@@ -423,11 +517,77 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	return &ToolRegistry{}
 }
 
+// ProvideSubAgentGraphs 按配置构建子 agent 图集合。
+// 每个子 agent：独立模型实例（Derive，避免 BindTools 覆盖）、独立 RetryGate、
+// 不挂 checkpoint、禁用与自身无关的上下文注入（记忆/技能/MCP/工作目录）。
+func ProvideSubAgentGraphs(mm *modelmanager.ModelManager, cfg *config.Config, logger *zap.Logger) (map[string]compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
+	agents := make(map[string]compose.Runnable[*eino_schema.Message, *eino_schema.Message])
+	if !cfg.SubAgents.Enabled {
+		return agents, nil
+	}
+	for _, sa := range cfg.SubAgents.Agents {
+		if !sa.Enabled {
+			continue
+		}
+		dm, err := mm.Derive(sa.Model)
+		if err != nil {
+			return nil, fmt.Errorf("derive model for sub agent %s: %w", sa.Name, err)
+		}
+		subTools := tool.RegisteredToolsByNames(sa.Tools)
+		einoTools := make([]eino_tool.BaseTool, len(subTools))
+		for i, t := range subTools {
+			einoTools[i] = t
+		}
+		tn, err := compose.NewToolNode(context.Background(), &compose.ToolsNodeConfig{Tools: einoTools})
+		if err != nil {
+			return nil, fmt.Errorf("sub agent %s tool node: %w", sa.Name, err)
+		}
+		infos := make([]*eino_schema.ToolInfo, 0, len(subTools))
+		for _, t := range subTools {
+			info, err := t.Info(context.Background())
+			if err != nil {
+				return nil, fmt.Errorf("sub agent %s tool info: %w", sa.Name, err)
+			}
+			infos = append(infos, info)
+		}
+		if err := dm.BindTools(infos); err != nil {
+			return nil, fmt.Errorf("bind tools for sub agent %s: %w", sa.Name, err)
+		}
+		g, err := graph.NewAgentGraphWithOptions(dm, tn, infos, nil, nil, nil, graph.AgentGraphOptions{
+			SystemPrompt:       sa.Prompt,
+			DisableCheckpoint:  true, // 子 agent 是"工具"，断点恢复只对主 agent 有意义
+			DisableMemory:      true,
+			DisableSkills:      true,
+			DisableMcp:         true,
+			DisableWorkspace:   true,
+			DisableQueryRewrite: true,
+			MaxRunSteps:        sa.MaxRunSteps,
+		}, nil, graph.NewRetryGate(3)) // 独立 RetryGate，计数不与主 agent 串扰
+		if err != nil {
+			return nil, fmt.Errorf("build sub agent %s: %w", sa.Name, err)
+		}
+		agents[sa.Name] = g
+		logger.Info("sub agent ready",
+			zap.String("agent", sa.Name),
+			zap.Int("tools", len(subTools)),
+		)
+	}
+	return agents, nil
+}
+
+// ProvideAgentDelegateTool 构造委派工具；未启用子 agent 时返回 nil（注册层跳过）。
+func ProvideAgentDelegateTool(agents map[string]compose.Runnable[*eino_schema.Message, *eino_schema.Message], cfg *config.Config, logger *zap.Logger) *tool.AgentDelegateTool {
+	if !cfg.SubAgents.Enabled || len(agents) == 0 {
+		return nil
+	}
+	return tool.NewAgentDelegateTool(agents, 90*time.Second, logger)
+}
+
 func ProvideRetryGate() *graph.RetryGate {
 	return graph.NewRetryGate(3) // 连续参数错误最多 3 次
 }
 
-func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, memorySvc *service.MemoryService, cfg *config.Config, cpStore *store.CheckpointStore, retryGate *graph.RetryGate) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
+func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.SkillStore, memorySvc *service.MemoryService, mcpStore *service.McpStore, cfg *config.Config, cpStore *store.CheckpointStore, retryGate *graph.RetryGate) (compose.Runnable[*eino_schema.Message, *eino_schema.Message], error) {
 	allTools := tool.RegisteredTools()
 	einoTools := make([]eino_tool.BaseTool, len(allTools))
 	for i, t := range allTools { einoTools[i] = t }
@@ -438,10 +598,15 @@ func ProvideAgentGraph(cm model.ChatModel, _ *ToolRegistry, skills *service.Skil
 	if err := cm.BindTools(infos); err != nil {
 		return nil, fmt.Errorf("bind tools: %w", err)
 	}
-	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, cfg.Agent.SystemPrompt, cfg.Agent.StockSystemPrompt, cpStore, retryGate)
+	return graph.NewAgentGraph(cm, tn, infos, skills, memorySvc, mcpStore, cfg.Agent.SystemPrompt, cfg.Agent.StockSystemPrompt, cpStore, retryGate)
 }
 
 func ProvideDocChain(emb embedding.Embedder, idx indexer.Indexer, cfg *config.Config) (compose.Runnable[[]byte, []string], error) {
+	// mysql FULLTEXT 模式检索不依赖向量，摄入链换 stub embedder 跳过 embedding 调用，
+	// 保证 Ollama 不可用时文档摄入不受影响（eino 链路结构不变）。
+	if cfg.VectorStore.Type == "mysql" {
+		emb = &stubEmbedder{}
+	}
 	return pipeline.NewDocumentIngestionChain(emb, idx, cfg.Document.ChunkSize, cfg.Document.ChunkOverlap)
 }
 
@@ -473,12 +638,43 @@ func ProvideApprovalStore(cfg *config.Config) *service.ApprovalStore {
 	if dataDir == "" { dataDir = "data" }
 	return service.NewApprovalStore(dataDir)
 }
-func ProvideFeedbackService(fbStore *store.ESFeedbackStore, logger *zap.Logger) *service.FeedbackService {
-	return service.NewFeedbackService(fbStore, logger)
+func ProvideFeedbackService(cfg *config.Config, db *gorm.DB, fbStore *store.ESFeedbackStore, logger *zap.Logger) *service.FeedbackService {
+	var fbs service.FeedbackStore
+	switch cfg.Conversation.StorageType {
+	case "mysql":
+		if db != nil {
+			fbs = store.NewMySQLFeedbackStore(db, logger)
+		} else if fbStore != nil {
+			logger.Warn("mysql requested but unavailable, falling back to es feedback store")
+			fbs = fbStore
+		} else {
+			logger.Warn("mysql and es unavailable, using in-memory feedback store")
+			fbs = store.NewMemFeedbackStore()
+		}
+	case "es":
+		if fbStore != nil {
+			fbs = fbStore
+		} else {
+			logger.Warn("es unavailable, using in-memory feedback store")
+			fbs = store.NewMemFeedbackStore()
+		}
+	default:
+		logger.Warn("unknown storage_type, using in-memory feedback store", zap.String("storage_type", cfg.Conversation.StorageType))
+		fbs = store.NewMemFeedbackStore()
+	}
+	return service.NewFeedbackService(fbs, logger)
 }
 
-func ProvideChatService(rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, logger *zap.Logger) *service.ChatService {
-	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, logger)
+// ProvideSemanticCache 构造语义缓存；未启用或 embedder 不可用时不注入。
+func ProvideSemanticCache(emb embedding.Embedder, cfg *config.Config) *service.SemanticCache {
+	if !cfg.SemanticCache.Enabled {
+		return nil
+	}
+	return service.NewSemanticCache(emb, cfg.SemanticCache.Enabled, cfg.SemanticCache.Threshold, cfg.SemanticCache.Capacity, cfg.SemanticCache.TTL)
+}
+
+func ProvideChatService(rag compose.Runnable[string, *eino_schema.Message], agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], convSvc *service.ConversationService, memorySvc *service.MemoryService, feedbackSvc *service.FeedbackService, confidenceSvc *service.ConfidenceService, semanticCache *service.SemanticCache, logger *zap.Logger) *service.ChatService {
+	return service.NewChatService(rag, agent, convSvc, memorySvc, feedbackSvc, confidenceSvc, semanticCache, logger)
 }
 
 func ProvideVectorDeleter(idx indexer.Indexer) service.VectorDeleter {
@@ -490,12 +686,31 @@ func ProvideDocService(doc compose.Runnable[[]byte, []string], docStore service.
 	return service.NewDocumentService(doc, docStore, vecDeleter, logger)
 }
 
-func ProvideConvService(esStore *store.ESConversationStore, logger *zap.Logger) *service.ConversationService {
-	if esStore == nil {
-		logger.Warn("es unavailable, using in-memory conversation store")
-		return service.NewConversationService(store.NewMemConvStore(), logger)
+func ProvideConvService(cfg *config.Config, db *gorm.DB, esStore *store.ESConversationStore, logger *zap.Logger) *service.ConversationService {
+	var convStore service.ConversationStore
+	switch cfg.Conversation.StorageType {
+	case "mysql":
+		if db != nil {
+			convStore = store.NewMySQLConversationStore(db, logger)
+		} else if esStore != nil {
+			logger.Warn("mysql requested but unavailable, falling back to es conversation store")
+			convStore = esStore
+		} else {
+			logger.Warn("mysql and es unavailable, using in-memory conversation store")
+			convStore = store.NewMemConvStore()
+		}
+	case "es":
+		if esStore != nil {
+			convStore = esStore
+		} else {
+			logger.Warn("es unavailable, using in-memory conversation store")
+			convStore = store.NewMemConvStore()
+		}
+	default:
+		logger.Warn("unknown storage_type, using in-memory conversation store", zap.String("storage_type", cfg.Conversation.StorageType))
+		convStore = store.NewMemConvStore()
 	}
-	return service.NewConversationService(esStore, logger)
+	return service.NewConversationService(convStore, logger)
 }
 
 func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, cpStore *store.CheckpointStore, logger *zap.Logger) *handler.ChatHandler {
@@ -581,6 +796,7 @@ var Module = fx.Module("goagent",
 		ProvideESClient,
 		ProvideIndexer,
 		ProvideRetriever,
+		ProvideMySQLDB,
 		ProvideESConversationStore,
 		ProvideESMemoryStore,
 		ProvideESFeedbackStore,
@@ -598,6 +814,8 @@ var Module = fx.Module("goagent",
 		ProvideEastMoneyClient,
 		ProvideAlertService,
 		ProvideRetryGate,
+		ProvideSubAgentGraphs,
+		ProvideAgentDelegateTool,
 		ProvideToolRegistry,
 		ProvideCheckpointStore,
 		ProvideAgentGraph,
@@ -606,6 +824,7 @@ var Module = fx.Module("goagent",
 		ProvideRateLimiter,
 		ProvideDocChain,
 		ProvideChatService,
+		ProvideSemanticCache,
 		ProvideDocService,
 		ProvideConvService,
 		ProvideBatchHandler,

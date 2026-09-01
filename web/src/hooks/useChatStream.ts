@@ -11,6 +11,7 @@ interface UseChatStreamReturn {
   cancel: () => void
   clear: () => void
   setInitialMessages: (msgs: Message[]) => void
+  setOnDone: (cb: (() => void) | null) => void
 }
 
 let msgCounter = 0
@@ -35,6 +36,11 @@ export function useChatStream(): UseChatStreamReturn {
 
   const currentAssistantRef = useRef<Message | null>(null)
   const onNewConversationRef = useRef<((id: string) => void) | null>(null)
+  const onDoneRef = useRef<(() => void) | null>(null)
+
+  const setOnDone = useCallback((cb: (() => void) | null) => {
+    onDoneRef.current = cb
+  }, [])
 
   const setInitialMessages = useCallback((msgs: Message[]) => {
     streamIdRef.current = 0
@@ -126,6 +132,7 @@ export function useChatStream(): UseChatStreamReturn {
           case 'done':
             if (streamIdRef.current !== sid) return
             setStatus('idle')
+            onDoneRef.current?.()
             break
 
           case 'waiting':
@@ -180,6 +187,7 @@ export function useChatStream(): UseChatStreamReturn {
     cancel,
     clear,
     setInitialMessages,
+    setOnDone,
   }
 }
 

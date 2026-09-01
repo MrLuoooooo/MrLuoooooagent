@@ -47,7 +47,7 @@ export function toggleMcpEnabled(enabled: boolean): Promise<void> {
   })
 }
 
-const DEV_BASE = 'http://127.0.0.1:8081/api/v1'
+const DEV_BASE = '/api/v1'
 
 export function importMcpZip(name: string, file: File): Promise<McpImportResult> {
   const form = new FormData()

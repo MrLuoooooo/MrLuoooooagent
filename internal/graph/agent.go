@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/tool"
@@ -16,20 +17,55 @@ import (
 type contextKey string
 const StockModeKey contextKey = "stock_mode"
 
+// AgentGraphOptions 控制 agent 图构造行为。
+// 主 agent 用默认值（全开）；子 agent 关闭与自身无关的上下文注入，
+// 避免共享全局状态（checkpoint/retrygate 由调用方保证独立实例）。
+type AgentGraphOptions struct {
+	SystemPrompt       string
+	StockPrompt        string
+	DisableCheckpoint  bool // 子 agent 必须为 true：断点恢复只对主 agent 有意义
+	DisableMemory      bool
+	DisableSkills      bool
+	DisableMcp         bool
+	DisableWorkspace   bool
+	DisableQueryRewrite bool
+	MaxRunSteps        int  // ≤0 时用默认 200
+}
+
+// NewAgentGraph 兼容旧签名：等价于 NewAgentGraphWithOptions 全默认值。
 func NewAgentGraph(
 	chatModel model.ChatModel,
 	toolsNode *compose.ToolsNode,
 	toolInfos []*schema.ToolInfo,
 	skills *service.SkillStore,
 	memorySvc *service.MemoryService,
+	mcpStore *service.McpStore,
 	systemPrompt string,
 	stockSystemPrompt string,
 	cpStore *store.CheckpointStore,
 	retryGate *RetryGate,
 ) (compose.Runnable[*schema.Message, *schema.Message], error) {
+	return NewAgentGraphWithOptions(chatModel, toolsNode, toolInfos, skills, memorySvc, mcpStore, AgentGraphOptions{
+		SystemPrompt: systemPrompt,
+		StockPrompt:  stockSystemPrompt,
+	}, cpStore, retryGate)
+}
 
-	sysPrompt := systemPrompt
-	stockPrompt := stockSystemPrompt
+// NewAgentGraphWithOptions 构建 agent 图，支持子 agent 场景的上下文裁剪。
+func NewAgentGraphWithOptions(
+	chatModel model.ChatModel,
+	toolsNode *compose.ToolsNode,
+	toolInfos []*schema.ToolInfo,
+	skills *service.SkillStore,
+	memorySvc *service.MemoryService,
+	mcpStore *service.McpStore,
+	opts AgentGraphOptions,
+	cpStore *store.CheckpointStore,
+	retryGate *RetryGate,
+) (compose.Runnable[*schema.Message, *schema.Message], error) {
+
+	sysPrompt := opts.SystemPrompt
+	stockPrompt := opts.StockPrompt
 
 	graph := compose.NewGraph[*schema.Message, *schema.Message]()
 
@@ -41,13 +77,13 @@ func NewAgentGraph(
 				prompt = stockPrompt
 			}
 			// 注入用户长期记忆
-			if memorySvc != nil {
+			if !opts.DisableMemory && memorySvc != nil {
 				memBlock := memorySvc.InjectIntoPrompt(ctx, "default", msg.Content)
 				if memBlock != "" {
 					prompt += memBlock
 				}
 			}
-			if skills != nil {
+			if !opts.DisableSkills && skills != nil {
 				enabled := skills.Enabled()
 				if len(enabled) > 0 {
 					var sb strings.Builder
@@ -65,21 +101,51 @@ func NewAgentGraph(
 			// 注入工具并行调用策略（不修改用户 system_prompt，以扩展方式附加）
 			prompt += toolExecutionStrategy
 			// Inject current workspace before tools section so the model sees it first.
-			win := tool.GetWorkspaceWinPath()
-			if win == "" {
-				win = tool.GetWorkspaceRoot()
+			if !opts.DisableWorkspace {
+				win := tool.GetWorkspaceWinPath()
+				if win == "" {
+					win = tool.GetWorkspaceRoot()
+				}
+				if win != "" {
+					summary := tool.ReadWorkspaceSummary()
+					wsBlock := "\n## 当前工作目录\n路径: " + win + "\n目录内容:\n" + summary +
+						"\n用户询问工作目录时直接回答以上信息，不要调用任何工具。"
+					prompt = wsBlock + "\n" + prompt
+				}
 			}
-			if win != "" {
-				summary := tool.ReadWorkspaceSummary()
-				wsBlock := "\n## 当前工作目录\n路径: " + win + "\n目录内容:\n" + summary +
-					"\n用户询问工作目录时直接回答以上信息，不要调用任何工具。"
-				prompt = wsBlock + "\n" + prompt
+			// 注入用户上传的 MCP 项目列表
+			if !opts.DisableMcp && mcpStore != nil {
+				servers, _ := mcpStore.Load()
+				if len(servers) > 0 {
+					var sb strings.Builder
+					sb.WriteString("\n## 用户上传的 MCP 项目\n")
+					for _, s := range servers {
+						sb.WriteString("- ")
+						sb.WriteString(s.Name)
+						sb.WriteString(" (transport=")
+						sb.WriteString(s.Transport)
+						sb.WriteString(")")
+						if s.URL != "" {
+							sb.WriteString(" 路径: ")
+							sb.WriteString(s.URL)
+						}
+						if s.Transport == "agent" {
+							sb.WriteString(" 【agent-managed，可直接读取文件并按需改造】")
+						} else if s.Transport == "stdio" {
+							sb.WriteString(fmt.Sprintf(" 命令: %s %v", s.Command, s.Args))
+						}
+						sb.WriteString("\n")
+					}
+					prompt += sb.String()
+				}
 			}
 			// Query rewrite: 口语化/错别字/缩写归一为书面提问
 			userContent := msg.Content
-			rewritten := rewriteQueryIfNeeded(ctx, chatModel, userContent)
-			if rewritten != "" {
-				userContent = rewritten
+			if !opts.DisableQueryRewrite {
+				rewritten := rewriteQueryIfNeeded(ctx, chatModel, userContent)
+				if rewritten != "" {
+					userContent = rewritten
+				}
 			}
 
 			return []*schema.Message{
@@ -138,9 +204,12 @@ func NewAgentGraph(
 	graph.AddEdge("retry_gate", "tool_as_user")
 	graph.AddEdge("tool_as_user", "chat_model")
 
-	// 使用 Eino 内置的 checkpoint 机制
+	// 使用 Eino 内置的 checkpoint 机制（子 agent 必须禁用，避免断点状态串扰）
 	compileOpts := []compose.GraphCompileOption{compose.WithMaxRunSteps(200)}
-	if cpStore != nil {
+	if opts.MaxRunSteps > 0 {
+		compileOpts = []compose.GraphCompileOption{compose.WithMaxRunSteps(opts.MaxRunSteps)}
+	}
+	if !opts.DisableCheckpoint && cpStore != nil {
 		compileOpts = append(compileOpts, compose.WithCheckPointStore(cpStore))
 	}
 

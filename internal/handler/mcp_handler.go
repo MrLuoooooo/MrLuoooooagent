@@ -102,22 +102,21 @@ func (h *McpHandler) ImportZip(c *gin.Context) {
 		name = "mcp-import"
 	}
 
-	file, header, err := c.Request.FormFile("file")
+	file, _, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "请上传 ZIP 文件"})
 		return
 	}
 	defer file.Close()
 
-	// 解压到唯一临时目录，用完清理
-	tmpDir, err := os.MkdirTemp("", "goagent-mcp-")
-	if err != nil {
+	// 解压到永久目录 (项目 ID 作为子目录名)
+	projectDir := filepath.Join("/var/lib/goagent-projects", name)
+	_ = os.RemoveAll(projectDir) // 覆盖已有同名项目
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
 		return
 	}
-	defer os.RemoveAll(tmpDir)
-
-	zipPath := filepath.Join(tmpDir, header.Filename)
+	zipPath := filepath.Join(projectDir, "src.zip")
 	f, err := os.Create(zipPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
@@ -131,17 +130,24 @@ func (h *McpHandler) ImportZip(c *gin.Context) {
 	f.Close()
 
 	// 解压
-	if err := unzip(zipPath, tmpDir); err != nil {
+	if err := unzip(zipPath, projectDir); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "解压失败: " + err.Error()})
 		return
 	}
 
 	// 检测项目类型并生成配置
-	srv := detectProject(tmpDir, name)
+	srv := detectProject(projectDir, name)
 	if srv.Transport == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 1, "error": "未识别项目类型——需要 package.json / requirements.txt / go.mod 之一"})
-		return
+		// 未识别 manifest — 仍然接受上传，让 Agent 后续改造
+		srv.Transport = "agent"
+		srv.Command = "true"
+		srv.Args = []string{}
 	}
+	// stdio 入口文件改为绝对路径（客户端从 /app 启动子进程）
+	if srv.Transport == "stdio" && len(srv.Args) > 0 {
+		srv.Args[0] = filepath.Join(projectDir, srv.Args[0])
+	}
+	srv.URL = projectDir
 
 	if err := h.store.Upsert(srv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 1, "error": err.Error()})
@@ -214,53 +220,54 @@ func (h *McpHandler) Connect(c *gin.Context) {
 
 // detectProject 扫描目录，根据项目文件推断运行方式。
 func detectProject(dir, name string) config.MCPServer {
-	// Node.js 项目
-	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
-		return config.MCPServer{
-			Name:      name,
-			Transport: "stdio",
-			Command:   "npx",
-			Args:      []string{"tsx", "."},
+	// 优先级 1：明确的入口文件（main.py / server.py / index.js 等）
+	entries := []struct {
+		file, cmd string
+		args      []string
+	}{
+		{"main.py", "python3", []string{"main.py"}},
+		{"server.py", "python3", []string{"server.py"}},
+		{"index.js", "node", []string{"index.js"}},
+		{"app.js", "node", []string{"app.js"}},
+		{"index.ts", "npx", []string{"tsx", "index.ts"}},
+		{"server.ts", "npx", []string{"tsx", "server.ts"}},
+		{"main.go", "go", []string{"run", "main.go"}},
+	}
+	for _, e := range entries {
+		if _, err := os.Stat(filepath.Join(dir, e.file)); err == nil {
+			return config.MCPServer{
+				Name: name, Transport: "stdio",
+				Command: e.cmd, Args: e.args,
+			}
 		}
 	}
-	// Python 项目
+
+	// 优先级 2：包管理器 (无明确入口文件时用框架推断)
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
+		return config.MCPServer{
+			Name: name, Transport: "stdio",
+			Command: "npx", Args: []string{"tsx", "."},
+		}
+	}
 	if _, err := os.Stat(filepath.Join(dir, "pyproject.toml")); err == nil {
 		return config.MCPServer{
-			Name:      name,
-			Transport: "stdio",
-			Command:   "python",
-			Args:      []string{"-m", "mcp_server"},
+			Name: name, Transport: "stdio",
+			Command: "python3", Args: []string{"-m", "mcp_server"},
 		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "requirements.txt")); err == nil {
 		return config.MCPServer{
-			Name:      name,
-			Transport: "stdio",
-			Command:   "python",
-			Args:      []string{"-m", "server"},
+			Name: name, Transport: "stdio",
+			Command: "python3", Args: []string{"-m", "server"},
 		}
 	}
-	// Go 项目
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 		return config.MCPServer{
-			Name:      name,
-			Transport: "stdio",
-			Command:   "go",
-			Args:      []string{"run", "."},
+			Name: name, Transport: "stdio",
+			Command: "go", Args: []string{"run", "."},
 		}
 	}
-	// 找 main.py / server.py / index.js 兜底
-	for _, f := range []string{"main.py", "server.py", "index.js", "app.js", "index.ts", "server.ts", "main.go"} {
-		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
-			cmd, args := guessCmd(f)
-			return config.MCPServer{
-				Name:      name,
-				Transport: "stdio",
-				Command:   cmd,
-				Args:      args,
-			}
-		}
-	}
+
 	return config.MCPServer{}
 }
 

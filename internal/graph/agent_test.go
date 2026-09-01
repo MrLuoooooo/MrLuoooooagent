@@ -45,7 +45,7 @@ func TestNewAgentGraph_Compiles(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cm, tn, nil, nil, nil, "", "", nil, NewRetryGate(0))
+	g, err := NewAgentGraph(cm, tn, nil, nil, nil, nil, "", "", nil, NewRetryGate(0))
 	if err != nil {
 		t.Fatalf("NewAgentGraph() error = %v", err)
 	}
@@ -67,7 +67,7 @@ func TestNewAgentGraph_DirectAnswer(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cm, tn, nil, nil, nil, "", "", nil, NewRetryGate(0))
+	g, err := NewAgentGraph(cm, tn, nil, nil, nil, nil, "", "", nil, NewRetryGate(0))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestToolExecutionStrategy_Injected(t *testing.T) {
 		t.Fatalf("create tool node: %v", err)
 	}
 
-	g, err := NewAgentGraph(cap, tn, nil, nil, nil, "you are a helpful assistant.", "", nil, NewRetryGate(0))
+	g, err := NewAgentGraph(cap, tn, nil, nil, nil, nil, "you are a helpful assistant.", "", nil, NewRetryGate(0))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestStockModePromptSwitch(t *testing.T) {
 	generalPrompt := "you are a general assistant."
 	stockPrompt := "you are a stock analysis specialist. Analyze using MACD/RSI/BOLL."
 
-	g, err := NewAgentGraph(cap, tn, nil, nil, nil, generalPrompt, stockPrompt, nil, NewRetryGate(0))
+	g, err := NewAgentGraph(cap, tn, nil, nil, nil, nil, generalPrompt, stockPrompt, nil, NewRetryGate(0))
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}

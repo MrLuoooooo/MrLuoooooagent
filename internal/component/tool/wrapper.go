@@ -3,6 +3,8 @@ package tool
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -105,6 +107,13 @@ func (w *timeoutBreakerWrapper) invokeWithTimeout(ctx context.Context, args stri
 	ch := make(chan result, 1)
 
 	go func() {
+		// 工具实现 bug（nil pointer/越界）会 panic，必须拦截并写回 ch，否则调用方在 select 上永久阻塞
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[tool:%s] invoke panic recovered: %v\n%s", w.name, r, debug.Stack())
+				ch <- result{"", fmt.Errorf("工具 %s 执行异常已被拦截: %v", w.name, r)}
+			}
+		}()
 		out, err := w.inner.InvokableRun(childCtx, args, opts...)
 		ch <- result{out, err}
 	}()

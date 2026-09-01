@@ -11,12 +11,18 @@ interface LayoutContext {
   create: (title?: string) => Promise<string | null>
   loadMessages: (id: string) => Promise<MessageItem[]>
   messagesLoading: boolean
+  refresh: () => void
 }
 
 export default function ChatPage() {
-  const { convId, create, loadMessages, messagesLoading } = useOutletContext<LayoutContext>()
+  const { convId, create, loadMessages, messagesLoading, refresh } = useOutletContext<LayoutContext>()
   const chat = useChatStream()
   const userSentRef = useRef(false)
+
+  // 流式结束后自动刷新会话列表（拾取后端异步更名后的标题）
+  useEffect(() => {
+    chat.setOnDone(() => refresh())
+  }, [refresh, chat.setOnDone])
 
   useEffect(() => {
     if (!convId) return

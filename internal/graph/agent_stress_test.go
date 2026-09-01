@@ -43,7 +43,7 @@ func TestStress_MultipleTools(t *testing.T) {
 		{Name: "get_price", Desc: "price"},
 		{Name: "get_revenue", Desc: "revenue"},
 		{Name: "get_growth", Desc: "growth"},
-	}, nil, nil, "", "", nil, NewRetryGate(3))
+	}, nil, nil, nil, "", "", nil, NewRetryGate(3))
 
 	// 模拟 50 个并发用户同时调 Agent
 	concurrency := 50

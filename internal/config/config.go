@@ -64,6 +64,36 @@ func Load() (*Config, error) {
 		cfg.Search.APIKey = key
 	}
 
+	// MySQL 主库连接信息走环境变量，不硬编码进 yaml。
+	// 优先用完整 DSN；未提供时用分项（MYSQL_HOST/PORT/USER/PASSWORD/DATABASE）拼装，
+	// 保证 docker-compose 里一份密码（MYSQL_PASSWORD）同时供 mysql 容器和 goagent 使用。
+	if dsn := os.Getenv("GOAGENT_MYSQL_DSN"); dsn != "" {
+		cfg.MySQL.DSN = dsn
+	} else {
+		host := os.Getenv("MYSQL_HOST")
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		port := os.Getenv("MYSQL_PORT")
+		if port == "" {
+			port = "3306"
+		}
+		user := os.Getenv("MYSQL_USER")
+		pass := os.Getenv("MYSQL_PASSWORD")
+		dbname := os.Getenv("MYSQL_DATABASE")
+		if user != "" && pass != "" && dbname != "" {
+			cfg.MySQL.DSN = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+				user, pass, host, port, dbname)
+		}
+	}
+
+	// model_list 中 openai 条目 api_key 为空时继承 cloud 的 key，避免 yaml 落明文。
+	for i := range cfg.ModelProvider.ModelList {
+		if cfg.ModelProvider.ModelList[i].APIKey == "" {
+			cfg.ModelProvider.ModelList[i].APIKey = cfg.ModelProvider.Cloud.APIKey
+		}
+	}
+
 	return &cfg, nil
 }
 

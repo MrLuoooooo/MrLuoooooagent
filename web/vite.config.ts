@@ -7,14 +7,17 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    strictPort: true,
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+    },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8081',
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:8080',
         changeOrigin: true,
-        // 不缓冲 SSE 流式响应
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes) => {
-            // 让 Node.js http-proxy 不缓冲 chunked 响应
             proxyRes.headers['cache-control'] = 'no-cache'
           })
         },

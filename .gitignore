@@ -32,7 +32,10 @@ tmp/
 go.work
 go.work.sum
 vendor/
-
+.claude/
 # IDE / AI tools
 .workbuddy/
 .codebuddy/
+
+# Go build cache
+.gocache/

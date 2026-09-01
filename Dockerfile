@@ -12,7 +12,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /build/goagent ./cmd/s
 
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates tzdata bash curl
+RUN apk add --no-cache ca-certificates tzdata bash curl python3 py3-pip
+
+RUN python3 -m pip install --break-system-packages mcp 2>/dev/null || \
+    pip3 install mcp --no-cache-dir
 
 WORKDIR /app
 
