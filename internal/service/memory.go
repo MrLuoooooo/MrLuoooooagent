@@ -65,7 +65,7 @@ func NewMemoryService(store MemoryStore, logger *zap.Logger, model ModelCaller, 
 
 // ExtractAndStore 从对话消息中异步提取记忆写入存储。
 func (s *MemoryService) ExtractAndStore(ctx context.Context, userID, conversationID string, messages []*schema.Message) {
-	if !s.enabled {
+	if !s.enabled || s.store == nil {
 		return
 	}
 	// 拷贝切片，防止 goroutine 内原始 slice 被修改。
@@ -146,7 +146,7 @@ func (s *MemoryService) ExtractAndStore(ctx context.Context, userID, conversatio
 
 // RetrieveRelevant 根据当前查询检索最相关的记忆。
 func (s *MemoryService) RetrieveRelevant(ctx context.Context, userID, query string) []store.MemoryMeta {
-	if !s.enabled {
+	if !s.enabled || s.store == nil {
 		return nil
 	}
 	mems, err := s.store.Search(ctx, userID, query, s.topK)

@@ -332,7 +332,13 @@ func ProvideMemoryStore(db *gorm.DB, esStore *store.ESMemoryStore, cfg *config.C
 		logger.Info("memory store using mysql (keyword search, no embedding)")
 		return store.NewMySQLMemoryStore(db)
 	}
-	return esStore // 可能为 nil，由 ProvideMemoryService 统一降级
+	// 关键：必须显式返回 untyped nil。esStore 是 *ESMemoryStore 类型，
+	// 直接 return esStore 会把 nil 指针装进接口（typed-nil 陷阱），
+	// 接口 != nil 导致 ProvideMemoryService 的降级判断失效，最终 nil dereference panic。
+	if esStore == nil {
+		return nil
+	}
+	return esStore
 }
 
 func ProvideMemoryService(memStore service.MemoryStore, mm *modelmanager.ModelManager, logger *zap.Logger, cfg *config.Config) *service.MemoryService {

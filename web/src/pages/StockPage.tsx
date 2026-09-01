@@ -7,6 +7,7 @@ import { fetchKLine, fetchRealtime } from '../api/stock'
 import type { KLineItem, StockRealtime } from '../types/stock'
 import type { SourceRef } from '../types/chat'
 import { chatStream } from '../api/chat'
+import { getConversationMessages } from '../api/conversation'
 import type { StreamEvent } from '../types/chat'
 
 interface ChatMessage {
@@ -52,6 +53,28 @@ export default function StockPage() {
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 历史消息：每只股票对应固定会话 stock_<code>（后端 Ensure 按需创建），
+  // 挂载与切换标的时拉取。失败静默降级为空历史，不阻塞行情展示。
+  useEffect(() => {
+    if (!selectedCode || streaming) return
+    let cancelled = false
+    getConversationMessages(`stock_${selectedCode}`)
+      .then((resp) => {
+        if (cancelled) return
+        setMessages(
+          resp.messages.map((m) => ({
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.content,
+          })),
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCode])
 
   const handleSend = async () => {
     if (!input.trim() || streaming) return

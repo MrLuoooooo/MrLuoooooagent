@@ -64,6 +64,9 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
+    # 依赖健康检查只保证首次启动顺序；Docker 冷启动/依赖中途重启后
+    # app 需要能跟随拉起，否则会以降级状态（如 memory store nil）长期运行。
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:8080/health | grep -q ok"]
       interval: 15s
