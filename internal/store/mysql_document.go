@@ -50,7 +50,8 @@ func NewMySQLDocumentStore(db *gorm.DB) *MySQLDocumentStore {
 }
 
 // Save 保存文档元数据（upsert，重复摄入同名文档时覆盖计数）。
-func (s *MySQLDocumentStore) Save(_ context.Context, doc DocumentMeta) error {
+// ctx 透传进 GORM：调用方取消/超时能中断长事务，不在 store 层吞掉。
+func (s *MySQLDocumentStore) Save(ctx context.Context, doc DocumentMeta) error {
 	row := mysqlDocMeta{
 		ID:         doc.ID,
 		Filename:   doc.Filename,
@@ -58,24 +59,24 @@ func (s *MySQLDocumentStore) Save(_ context.Context, doc DocumentMeta) error {
 		Content:    doc.Content,
 		CreatedAt:  doc.CreatedAt,
 	}
-	if err := s.db.Save(&row).Error; err != nil {
+	if err := s.db.WithContext(ctx).Save(&row).Error; err != nil {
 		return fmt.Errorf("mysql doc meta save: %w", err)
 	}
 	return nil
 }
 
 // Delete 删除文档元数据行。chunk 行由 VectorDeleter（mysqlindexer）负责。
-func (s *MySQLDocumentStore) Delete(_ context.Context, id string) error {
-	if err := s.db.Delete(&mysqlDocMeta{}, "id = ?", id).Error; err != nil {
+func (s *MySQLDocumentStore) Delete(ctx context.Context, id string) error {
+	if err := s.db.WithContext(ctx).Delete(&mysqlDocMeta{}, "id = ?", id).Error; err != nil {
 		return fmt.Errorf("mysql doc meta delete: %w", err)
 	}
 	return nil
 }
 
 // List 列全部文档元数据，最新在前，与 ES 版行为一致。
-func (s *MySQLDocumentStore) List(_ context.Context) ([]DocumentMeta, error) {
+func (s *MySQLDocumentStore) List(ctx context.Context) ([]DocumentMeta, error) {
 	var rows []mysqlDocMeta
-	if err := s.db.Order("created_at DESC").Limit(1000).Find(&rows).Error; err != nil {
+	if err := s.db.WithContext(ctx).Order("created_at DESC").Limit(1000).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("mysql doc meta list: %w", err)
 	}
 	result := make([]DocumentMeta, len(rows))

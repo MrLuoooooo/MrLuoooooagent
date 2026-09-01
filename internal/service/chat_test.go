@@ -256,15 +256,30 @@ func TestChatService_SaveMessages_ReportsError(t *testing.T) {
 }
 
 func TestChatService_Chat_RagChainError(t *testing.T) {
-	// RAG 链失败 → 降级消息而非 error（检索组件不可用不转 500），且不落 assistant 消息。
+	// RAG 链失败 → 降级消息而非 error（检索组件不可用不转 500），
+	// 且降级消息必须落库（会话历史完整：用户消息 handler 落，助手回复 service 落）。
+	conv := &mockConvSvc{}
 	var noRag compose.Runnable[string, *schema.Message] = &errRAG{}
-	s := NewChatService(noRag, &mockAgent{}, &mockConvSvc{}, nil, nil, nil, nil, zap.NewNop())
-	msg, err := s.Chat(context.Background(), "fail", "conv_no_save")
+	s := NewChatService(noRag, &mockAgent{}, conv, nil, nil, nil, nil, zap.NewNop())
+	msg, err := s.Chat(context.Background(), "fail", "conv_degraded")
 	if err != nil {
 		t.Fatalf("degraded chat should not return error, got: %v", err)
 	}
 	if msg == nil || !strings.Contains(msg.Content, "知识库检索服务暂时不可用") {
 		t.Fatalf("expected degraded message, got: %+v", msg)
+	}
+
+	conv.mu.Lock()
+	defer conv.mu.Unlock()
+	if len(conv.saved) != 1 {
+		t.Fatalf("degraded path must persist assistant message, got %d saves", len(conv.saved))
+	}
+	rec := conv.saved[0]
+	if rec.ConvID != "conv_degraded" {
+		t.Errorf("convID: got %q, want conv_degraded", rec.ConvID)
+	}
+	if len(rec.Msgs) != 1 || rec.Msgs[0].Content != msg.Content {
+		t.Errorf("persisted degraded msg mismatch: %+v", rec.Msgs)
 	}
 }
 

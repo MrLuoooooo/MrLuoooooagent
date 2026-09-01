@@ -58,9 +58,13 @@ func NewChatService(
 	return svc
 }
 
+// ragDegradedNotice RAG 检索链不可用时的统一降级文案。
+// 单点维护：非流式（Chat）与流式（ChatStream）共用，改文案只动这里。
+const ragDegradedNotice = "⚠️ 知识库检索服务暂时不可用，本次回答未基于文档。请稍后重试，或直接描述你的问题。"
+
 // Chat 走 RAG 链，回答完自动写 ES。
 // 非流式分支接入语义缓存：命中直接返回（零 LLM 调用），未命中生成后写入。
-// 注意：命中路径同样落库（会话历史必须完整），只是跳过 LLM/置信度/记忆提取。
+// 注意：命中/降级路径同样落库（会话历史必须完整），只是跳过 LLM/置信度/记忆提取。
 func (s *ChatService) Chat(ctx context.Context, question string, convID string) (*schema.Message, error) {
 	if s.semanticCache != nil {
 		if ans, hit := s.semanticCache.Get(ctx, question); hit {
@@ -80,11 +84,19 @@ func (s *ChatService) Chat(ctx context.Context, question string, convID string) 
 	if err != nil {
 		// 降级：检索组件（ES/MySQL）不可用时不 500，回一段兜底消息。
 		// 日志保留完整错误供排查；产品化升级点是这里换成纯 LLM 直接回答。
-		s.logger.Error("rag chain invoke failed, degraded response", zap.Error(err))
-		return &schema.Message{
-			Role:    schema.Assistant,
-			Content: "⚠️ 知识库检索服务暂时不可用，本次回答未基于文档。请稍后重试，或直接描述你的问题。",
-		}, nil
+		s.logger.Error("rag chain invoke failed, degraded response",
+			zap.String("conv_id", convID),
+			zap.String("question", question),
+			zap.Error(err))
+		degraded := &schema.Message{Role: schema.Assistant, Content: ragDegradedNotice}
+		// 降级回复同样必须落库：否则刷新会话历史时这条回复凭空消失，
+		// 与"会话历史必须完整"契约矛盾（流式路径由 handler 落库，非流式在此落）。
+		if err := s.SaveAssistantMessage(convID, degraded.Content, nil); err != nil {
+			s.logger.Error("persist degraded assistant message",
+				zap.String("conv_id", convID),
+				zap.Error(err))
+		}
+		return degraded, nil
 	}
 	if s.semanticCache != nil {
 		s.semanticCache.Put(ctx, question, msg.Content)
@@ -96,14 +108,14 @@ func (s *ChatService) Chat(ctx context.Context, question string, convID string) 
 }
 
 // ChatStream 返回 RAG 流。
+// 降级时不落库（无 convID 参数）：流式路径的落库职责在 handler（chat.go 收流后统一 SaveMessages）。
 func (s *ChatService) ChatStream(ctx context.Context, question string) (*schema.StreamReader[*schema.Message], error) {
 	stream, err := s.ragChain.Stream(ctx, question)
 	if err != nil {
-		s.logger.Error("rag chain stream failed, degraded response", zap.Error(err))
-		degraded := &schema.Message{
-			Role:    schema.Assistant,
-			Content: "⚠️ 知识库检索服务暂时不可用，本次回答未基于文档。请稍后重试，或直接描述你的问题。",
-		}
+		s.logger.Error("rag chain stream failed, degraded response",
+			zap.String("question", question),
+			zap.Error(err))
+		degraded := &schema.Message{Role: schema.Assistant, Content: ragDegradedNotice}
 		return schema.StreamReaderFromArray([]*schema.Message{degraded}), nil
 	}
 	return stream, nil

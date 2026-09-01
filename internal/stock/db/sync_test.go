@@ -2,6 +2,9 @@ package db
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -65,5 +68,32 @@ func TestParseStockPage_NullData(t *testing.T) {
 	}
 	if len(list) != 0 || total != 0 {
 		t.Fatalf("want empty page, got len=%d total=%d", len(list), total)
+	}
+}
+
+// TestFetchAllStocksFrom_TotalZero 分页守卫回归：镜像返回 total=0 时不得在第一页后提前断，
+// 必须拉满 3 页（300 条）后由空页终止，防止静默缺数据。
+func TestFetchAllStocksFrom_TotalZero(t *testing.T) {
+	const pages = 3
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var pn int
+		if _, err := fmt.Sscanf(r.URL.Query().Get("pn"), "%d", &pn); err != nil || pn < 1 {
+			pn = 1
+		}
+		if pn > pages { // 越界页：data null
+			fmt.Fprint(w, `{"data":null}`)
+			return
+		}
+		// total 恒为 0：模拟镜像 total 字段异常
+		fmt.Fprintf(w, `{"data":{"total":0,"diff":[{"f12":"600519","f14":"贵州茅台","f100":"酿酒行业","f20":100,"f115":1,"f117":1}]}}`)
+	}))
+	defer srv.Close()
+
+	stocks, err := fetchAllStocksFrom(srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(stocks) != pages {
+		t.Fatalf("total=0 must fetch until empty page: got %d stocks, want %d", len(stocks), pages)
 	}
 }

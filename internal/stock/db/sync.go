@@ -69,7 +69,9 @@ func fetchAllStocksFrom(host string) ([]StockBasic, error) {
 			break // 空页：越界或数据耗尽
 		}
 		all = append(all, stocks...)
-		if len(all) >= total {
+		// total<=0 视为镜像未返回 total：不提前断，靠空页（len(stocks)==0）兜底终止，
+		// 避免 total 异常导致只拉第一页 100 条的静默缺数据。
+		if total > 0 && len(all) >= total {
 			break
 		}
 	}
