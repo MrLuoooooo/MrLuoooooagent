@@ -449,7 +449,10 @@ func isDriveLetter(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
 }
 
-var toolCodeRe = regexp.MustCompile(`(?s)<tool_code>.*?</tool_code>`)
+// 同时剥 <tool_code> 与 <tool_call> 两种标签块：
+// 前者是模型被提示用的输出格式，后者是 XML 兜底解析器（graph.parsePromptToolCalls）的输入格式。
+// parse_tool_calls 改为流式透传后，graph 层不再剥块，显示过滤统一收敛到 handler。
+var toolCodeRe = regexp.MustCompile(`(?s)<tool_call>.*?</tool_call>|<tool_code>.*?</tool_code>`)
 
 func stripToolCode(s string) string {
 	return toolCodeRe.ReplaceAllString(s, "")

@@ -106,14 +106,6 @@ func parseJSONToolCalls(content string) []schema.ToolCall {
 	return tcs
 }
 
-// stripToolCallBlocks removes <tool_call>...</tool_call> blocks from content
-// so the user doesn't see raw tool call XML in the chat output.
-func stripToolCallBlocks(content string) string {
-	content = toolCallBlockRe.ReplaceAllString(content, "")
-	content = jsonCodeBlockRe.ReplaceAllString(content, "")
-	return strings.TrimSpace(content)
-}
-
 // buildPromptToolsSection generates a text description of all available tools
 // for inclusion in the system prompt. Used when the model doesn't support
 // native function calling.

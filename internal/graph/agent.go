@@ -157,18 +157,56 @@ func NewAgentGraphWithOptions(
 
 	graph.AddChatModelNode("chat_model", chatModel)
 
-	graph.AddLambdaNode("parse_tool_calls", compose.InvokableLambda(
-		func(ctx context.Context, msg *schema.Message) (*schema.Message, error) {
-			if len(msg.ToolCalls) > 0 {
-				return msg, nil
-			}
-			tcs := parsePromptToolCalls(msg.Content)
-			if len(tcs) == 0 {
-				return msg, nil
-			}
-			msg.ToolCalls = tcs
-			msg.Content = stripToolCallBlocks(msg.Content)
-			return msg, nil
+	// parse_tool_calls 用 TransformableLambda 而非 InvokableLambda：
+	// Invokable 会把上游 chat_model 的流整体合并成单条消息，最终回答失去流式
+	// （表现为前端"一瞬间"收到全文）。Transform 逐 chunk 透传内容保持流式；
+	// ToolCalls 聚合完成后单条补发，保证下游 branch 合并路由与 handler
+	// 收到完整工具调用参数（与旧单条行为一致）。
+	graph.AddLambdaNode("parse_tool_calls", compose.TransformableLambda(
+		func(ctx context.Context, sr *schema.StreamReader[*schema.Message]) (*schema.StreamReader[*schema.Message], error) {
+			pr, pw := schema.Pipe[*schema.Message](32)
+			go func() {
+				defer pw.Close()
+				send := func(msg *schema.Message) bool {
+					if closed := pw.Send(msg, nil); closed {
+						sr.Close() // 下游提前关闭，释放上游流
+						return true
+					}
+					return false
+				}
+				var chunks []*schema.Message
+				for {
+					chunk, err := sr.Recv()
+					if err != nil {
+						break
+					}
+					chunks = append(chunks, chunk)
+					// 内容原样透传（handler 侧 stripToolCode 负责过滤工具块）；
+					// ToolCalls 置空副本透传，聚合版延后单条发，避免增量分片导致事件参数残缺
+					cp := *chunk
+					cp.ToolCalls = nil
+					if send(&cp) {
+						return
+					}
+				}
+				if len(chunks) == 0 {
+					return
+				}
+				agg, err := schema.ConcatMessages(chunks)
+				if err != nil {
+					return
+				}
+				// 原生函数调用：chunk 里的增量分片聚合为完整 ToolCalls
+				// XML 文本格式兜底：不支持原生函数调用的模型用 <tool_code> 块表达意图
+				if len(agg.ToolCalls) == 0 {
+					agg.ToolCalls = parsePromptToolCalls(agg.Content)
+				}
+				if len(agg.ToolCalls) > 0 {
+					agg.Content = "" // 内容已随 chunk 透传，置空防止 branch 合并时重复
+					send(agg)
+				}
+			}()
+			return pr, nil
 		},
 	))
 

@@ -55,27 +55,6 @@ func TestParseXMLToolCalls_None(t *testing.T) {
 	}
 }
 
-func TestStripToolCallBlocks(t *testing.T) {
-	content := `Let me check.
-
-<tool_call>
-{"name": "search_files", "arguments": {"pattern": "*.go"}}
-</tool_call>
-
-Here are the results.`
-
-	stripped := stripToolCallBlocks(content)
-	if strings.Contains(stripped, "<tool_call>") {
-		t.Error("stripped content should not contain <tool_call>")
-	}
-	if !strings.Contains(stripped, "Let me check.") {
-		t.Error("should keep leading text")
-	}
-	if !strings.Contains(stripped, "Here are the results.") {
-		t.Error("should keep trailing text")
-	}
-}
-
 func TestBuildPromptToolsSection(t *testing.T) {
 	infos := []*schema.ToolInfo{
 		{

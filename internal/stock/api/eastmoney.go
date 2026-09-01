@@ -198,6 +198,12 @@ func (c *EastMoneyClient) parseKLine(code string, data []byte) ([]KLineData, err
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
+	// 接口被拒（如 rc:102 参数缺失）或异常请求时 data 为 null → 空切片。
+	// 空结果必须当错误处理，让 Collector 的双源 failover 有机会兜底，
+	// 否则空数据被当成功写进缓存，K 线表现为"无数据但无报错"。
+	if len(resp.Data.Klines) == 0 {
+		return nil, fmt.Errorf("eastmoney returned empty kline for %s", code)
+	}
 	result := make([]KLineData, 0, len(resp.Data.Klines))
 	for _, line := range resp.Data.Klines {
 		parts := strings.Split(line, ",")

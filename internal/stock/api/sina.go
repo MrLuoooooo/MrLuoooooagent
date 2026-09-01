@@ -129,6 +129,11 @@ func (c *SinaClient) parseKLine(code string, data []byte) ([]KLineData, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
+	// 新浪对不支持的周期/异常请求返回字面量 null（实测 2026-09，scale=10080/43200）。
+	// 空结果必须当错误处理，否则 Collector 视为成功、failover 不触发、空数据被缓存。
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("sina returned empty kline for %s", code)
+	}
 	result := make([]KLineData, 0, len(raw))
 	for _, r := range raw {
 		o, _ := strconv.ParseFloat(r.Open, 64)
