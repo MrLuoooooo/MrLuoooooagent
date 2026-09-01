@@ -446,6 +446,33 @@ func TestResolvePath_BlockSystemDir(t *testing.T) {
 	}
 }
 
+func TestResolvePath_BlockSystemDir_SegmentBoundary(t *testing.T) {
+	blocked := []string{
+		`C:\Windows`,           // exact segment
+		`E:\proc`,              // exact segment, different drive
+		`C:\Windows\Temp\x`,    // segment + children
+		`C:\Program Files\app`, // spaced segment
+	}
+	for _, p := range blocked {
+		if _, err := resolvePath(p); err == nil {
+			t.Errorf("should block %s", p)
+		}
+	}
+
+	allowed := []string{
+		`D:\system\cleanup`, // "/sys" must not swallow "/system"
+		`D:\WindowsApps\x`,  // "/windows" must not swallow "/windowsapps"
+		`D:\etcdata\a`,      // "/etc" must not swallow "/etcdata"
+		`D:\procmon\logs`,   // "/proc" must not swallow "/procmon"
+		`D:\goagentpro\src`, // normal project path
+	}
+	for _, p := range allowed {
+		if _, err := resolvePath(p); err != nil {
+			t.Errorf("should allow %s, got: %v", p, err)
+		}
+	}
+}
+
 func TestResolvePath_Empty(t *testing.T) {
 	_, err := resolvePath("")
 	if err == nil {
@@ -482,7 +509,7 @@ func TestHumanSize(t *testing.T) {
 	if s := humanSize(1500); !strings.Contains(s, "KB") {
 		t.Errorf("1500: got %q", s)
 	}
-	if s := humanSize(3*1024*1024); !strings.Contains(s, "MB") {
+	if s := humanSize(3 * 1024 * 1024); !strings.Contains(s, "MB") {
 		t.Errorf("3MB: got %q", s)
 	}
 }

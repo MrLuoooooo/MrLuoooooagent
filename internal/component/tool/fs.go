@@ -47,14 +47,20 @@ var blockedSystemPrefixes = []string{`/windows`, `/program files`, `/program fil
 
 // checkBlockedSystemPath rejects system directories. Input must be lowercase
 // with all separators normalized to forward slashes.
+// Matching is segment-boundary aware: "/sys" must not swallow "D:\system",
+// "/windows" must not swallow "D:\WindowsApps".
 func checkBlockedSystemPath(lowerSlashed string) error {
+	// tail candidates: the whole path (Unix form) and, for drive-letter paths,
+	// the part after "x:" (Windows form "d:/windows/..." → "/windows/...").
+	tails := []string{lowerSlashed}
+	if len(lowerSlashed) >= 2 && lowerSlashed[1] == ':' {
+		tails = append(tails, lowerSlashed[2:])
+	}
 	for _, bad := range blockedSystemPrefixes {
-		if strings.HasPrefix(lowerSlashed, bad) {
-			return fmt.Errorf("禁止访问系统目录: %s", lowerSlashed)
-		}
-		// Windows drive-letter form: "x:/windows/..." → tail after "x:" matches.
-		if len(lowerSlashed) >= 2 && lowerSlashed[1] == ':' && strings.HasPrefix(lowerSlashed[2:], bad) {
-			return fmt.Errorf("禁止访问系统目录: %s", lowerSlashed)
+		for _, tail := range tails {
+			if strings.HasPrefix(tail, bad) && (len(tail) == len(bad) || tail[len(bad)] == '/') {
+				return fmt.Errorf("禁止访问系统目录: %s", lowerSlashed)
+			}
 		}
 	}
 	return nil
