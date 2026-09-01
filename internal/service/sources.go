@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/callback"
 )
 
 // SourceRef 与 model.SourceRef 解耦的 service 层来源描述。
@@ -156,4 +158,36 @@ func extractStockSource(toolArgs string) []SourceRef {
 // isHTTPURL 只接受 http/https 绝对链接，防止把工具输出里的杂串当 URL 渲染。
 func isHTTPURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// maxArgSnippet 传入 ExtractSources 的参数截断长度，防止巨型参数白白参与正则匹配。
+const maxArgSnippet = 200
+
+// CollectSources 从一次 Agent 执行产生的全部工具调用记录中提取可引用来源。
+// 纯函数：编排 ExtractSources，统一做去重（kind|url|title）与 maxSources 封顶，
+// 保证多轮工具调用不会撑爆前端"参考来源"区块。handler 只消费结果，不做合并。
+func CollectSources(records []callback.ToolRunRecord) []SourceRef {
+	seen := make(map[string]bool)
+	out := make([]SourceRef, 0, maxSources)
+	for _, rec := range records {
+		if rec.ToolName == "" && rec.Result == "" {
+			continue // 空占位记录（callback 只拿到孤儿 OnEnd）无来源价值
+		}
+		args := rec.Args
+		if len(args) > maxArgSnippet {
+			args = args[:maxArgSnippet]
+		}
+		for _, ref := range ExtractSources(rec.ToolName, args, rec.Result) {
+			key := ref.Kind + "|" + ref.URL + "|" + ref.Title
+			if seen[key] {
+				continue
+			}
+			if len(out) >= maxSources {
+				return out // 封顶：按工具执行顺序保留先出现的来源
+			}
+			seen[key] = true
+			out = append(out, ref)
+		}
+	}
+	return out
 }

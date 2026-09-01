@@ -1,8 +1,11 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/callback"
 )
 
 func TestExtractSources_WebSearch(t *testing.T) {
@@ -90,5 +93,50 @@ func TestExtractSources_OtherTools(t *testing.T) {
 		if refs := ExtractSources(name, "{}", "anything"); refs != nil {
 			t.Errorf("tool %s should yield nil, got %+v", name, refs)
 		}
+	}
+}
+
+func TestCollectSources_DedupAcrossRecords(t *testing.T) {
+	records := []callback.ToolRunRecord{
+		{ToolName: "get_stock_realtime", Args: `{"code":"sh600519"}`, Result: `{"price":1520}`},
+		{ToolName: "get_stock_kline", Args: `{"code":"sh600519"}`, Result: "kline"},
+	}
+	refs := CollectSources(records)
+	// 同一股票两轮调用 → 同一来源，去重后只剩 1 条
+	if len(refs) != 1 || refs[0].URL != "https://quote.eastmoney.com/sh600519.html" {
+		t.Fatalf("dedup mismatch: %+v", refs)
+	}
+}
+
+func TestCollectSources_CapsAtMaxSources(t *testing.T) {
+	// 12 条不同股票记录 > maxSources=8，封顶后只保留先出现的 8 条
+	records := make([]callback.ToolRunRecord, 0, 12)
+	for i := range 12 {
+		records = append(records, callback.ToolRunRecord{
+			ToolName: "get_stock_realtime",
+			Args:     fmt.Sprintf(`{"code":"sh60%04d"}`, i),
+			Result:   "{}",
+		})
+	}
+	refs := CollectSources(records)
+	if len(refs) != 8 {
+		t.Fatalf("want capped 8 sources, got %d", len(refs))
+	}
+	if refs[0].URL != "https://quote.eastmoney.com/sh600000.html" {
+		t.Errorf("cap should keep earliest records, got %+v", refs[0])
+	}
+}
+
+func TestCollectSources_SkipsEmptyPlaceholders(t *testing.T) {
+	records := []callback.ToolRunRecord{
+		{}, // 孤儿占位：callback 只收到 OnEnd 无 OnStart
+		{ToolName: "retrieve_knowledge", Args: "{}", Result: "文档内容"},
+	}
+	refs := CollectSources(records)
+	if len(refs) != 1 || refs[0].Kind != "knowledge" {
+		t.Fatalf("placeholder skip mismatch: %+v", refs)
+	}
+	if out := CollectSources(nil); len(out) != 0 {
+		t.Errorf("nil records should yield empty slice, got %+v", out)
 	}
 }

@@ -230,11 +230,6 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		var toolCalls []schema.ToolCall
 		seenTools := make(map[string]bool)
 		phasePushed := make(map[string]bool)
-		// 来源收集：ToolCallID → 工具名/参数，工具结果到达时提取引用来源
-		type toolMetaInfo struct{ name, args string }
-		toolMeta := make(map[string]toolMetaInfo)
-		var sources []service.SourceRef
-		seenSources := make(map[string]bool)
 
 		// Phase: 开始分析
 		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【准备中】正在分析问题..."})
@@ -276,9 +271,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 							phasePushed["executing"] = true
 							h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【执行中】正在调用工具获取数据..."})
 						}
-						seenTools[tc.ID] = true
-						toolMeta[tc.ID] = toolMetaInfo{name: tc.Function.Name, args: tc.Function.Arguments}
-						h.writeSSEEvent(c.Writer, model.StreamEvent{
+					seenTools[tc.ID] = true
+					h.writeSSEEvent(c.Writer, model.StreamEvent{
 							Type:     model.EventToolCall,
 							Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
 							ToolName: tc.Function.Name,
@@ -286,19 +280,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 						})
 					}
 				}
-				if chunk.Role == schema.Tool {
-					// 从工具结果提取可引用来源（web 搜索/知识库/行情数据源）
-					meta, ok := toolMeta[chunk.ToolCallID]
-					if ok {
-						for _, ref := range service.ExtractSources(meta.name, meta.args, chunk.Content) {
-							key := ref.Kind + "|" + ref.URL + "|" + ref.Title
-							if !seenSources[key] {
-								seenSources[key] = true
-								sources = append(sources, ref)
-							}
-						}
-					}
-					h.writeSSEEvent(c.Writer, model.StreamEvent{
+			if chunk.Role == schema.Tool {
+				h.writeSSEEvent(c.Writer, model.StreamEvent{
 						Type:    model.EventToolResult,
 						Content: toWindowsPath(chunk.Content),
 					})
@@ -319,8 +302,9 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			}
 		}
 
-		// 来源引用：流结束后从收集器读取全部工具调用记录，提取可引用来源
-		// （web 搜索/知识库/行情数据源），done 前发一次，前端渲染"参考来源"区块。
+		// 来源引用：流结束后从收集器读全部工具记录，提取/去重/封顶
+		// 收口在 service 纯函数 CollectSources，done 前发一次供前端渲染。
+		sources := service.CollectSources(toolBag.Records)
 		for _, rec := range toolBag.Records {
 			args := rec.Args
 			if len(args) > 200 {
@@ -332,16 +316,6 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 				zap.String("args", args),
 				zap.Int("result_len", len(rec.Result)),
 			)
-			if rec.Result == "" && rec.ToolName == "" {
-				continue
-			}
-			for _, ref := range service.ExtractSources(rec.ToolName, rec.Args, rec.Result) {
-				key := ref.Kind + "|" + ref.URL + "|" + ref.Title
-				if !seenSources[key] {
-					seenSources[key] = true
-					sources = append(sources, ref)
-				}
-			}
 		}
 		if len(sources) > 0 {
 			sseSources := make([]model.SourceRef, len(sources))
