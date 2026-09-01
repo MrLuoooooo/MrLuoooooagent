@@ -21,17 +21,25 @@ export default function StockPage() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [period, setPeriod] = useState('day')
+  const [klineLoading, setKlineLoading] = useState(false)
+  const [klineError, setKlineError] = useState<string | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
 
   const loadData = useCallback(async (code: string) => {
+    // K 线与实时行情分开处理：行情失败可以静默（页面还有 K 线可看），
+    // K 线失败必须显式提示——静默吞错曾导致"按钮点了没反应"却查不到原因。
+    setKlineLoading(true)
+    setKlineError(null)
     try {
-      const [klines, rt] = await Promise.all([
-        fetchKLine(code, period, 120),
-        fetchRealtime(code).catch(() => null),
-      ])
+      const klines = await fetchKLine(code, period, 120)
       setKlineData(klines)
-      setRealtime(rt)
-    } catch {}
+    } catch (e) {
+      setKlineData([])
+      setKlineError(e instanceof Error ? e.message : 'K线数据加载失败')
+    } finally {
+      setKlineLoading(false)
+    }
+    fetchRealtime(code).then(setRealtime).catch(() => {})
   }, [period])
 
   useEffect(() => {
@@ -89,7 +97,12 @@ export default function StockPage() {
     }
   }
 
-  const periods = ['day', 'week', 'month'] as const
+  const periods = [
+    { key: 'day', label: '日K' },
+    { key: 'week', label: '周K' },
+    { key: 'month', label: '月K' },
+    { key: 'year', label: '年K' },
+  ] as const
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -117,13 +130,13 @@ export default function StockPage() {
           <div className="flex items-center gap-1">
             {periods.map((p) => (
               <button
-                key={p}
-                onClick={() => setPeriod(p)}
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                  p === period ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                  p.key === period ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
-                {p === 'day' ? '日K' : p === 'week' ? '周K' : '月K'}
+                {p.label}
               </button>
             ))}
           </div>
@@ -131,7 +144,23 @@ export default function StockPage() {
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
-            <StockChart data={klineData} code={selectedCode} />
+            {klineError ? (
+              <div className="flex flex-col items-center justify-center gap-2 h-64 rounded-lg border border-red-900/50 bg-red-950/20">
+                <span className="text-sm text-red-400">K线加载失败：{klineError}</span>
+                <button
+                  onClick={() => loadData(selectedCode)}
+                  className="px-3 py-1 rounded text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  重试
+                </button>
+              </div>
+            ) : klineLoading ? (
+              <div className="flex items-center justify-center h-64 text-gray-500 text-sm">
+                加载K线数据中...
+              </div>
+            ) : (
+              <StockChart data={klineData} code={selectedCode} />
+            )}
           </div>
 
           <div className="px-4 pb-4 space-y-3">

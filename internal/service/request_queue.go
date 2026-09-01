@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"sync"
 	"time"
 
@@ -25,10 +24,14 @@ type QueuedRequest struct {
 }
 
 // QueueResult 排队结果。
+// Position/EtaSeconds 仅在 NodeID 为 "queued"/"position" 时有意义：
+// Position 是排在本请求前面的真实人数（不含自己），EtaSeconds 为预估等待秒数。
 type QueueResult struct {
-	Stream *schema.StreamReader[*schema.Message] // 流式结果
-	Err    error                                  // 错误
-	NodeID string                                 // "queued" / "position" / "coalesced" / "done" / "error"
+	Stream     *schema.StreamReader[*schema.Message] // 流式结果
+	Err        error                                 // 错误
+	NodeID     string                                // "queued" / "position" / "coalesced" / "done" / "error" / "token"
+	Position   int                                   // 排在前面的请求数（不含自己）
+	EtaSeconds int                                   // 预估等待秒数
 }
 
 // RequestQueue 永不拒绝的产品级请求队列。
@@ -74,10 +77,12 @@ func (q *RequestQueue) Submit(req *QueuedRequest) *QueueResult {
 	default:
 	}
 
-	pos := len(q.pending)
+	// 刚入队的自己不算"前面的人"，所以减一；队首时 Position=0，前端显示"正在处理中"
+	pos := len(q.pending) - 1
 	return &QueueResult{
-		NodeID: "queued",
-		Err:    fmt.Errorf("%d|%ds", pos, pos*2),
+		NodeID:     "queued",
+		Position:   pos,
+		EtaSeconds: pos * 2,
 	}
 }
 
@@ -141,7 +146,7 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 	for _, r := range q.pending {
 		pos := q.posOfLocked(r)
 		select {
-		case r.ResultCh <- &QueueResult{NodeID: "position", Err: fmt.Errorf("%d", pos)}:
+		case r.ResultCh <- &QueueResult{NodeID: "position", Position: pos, EtaSeconds: pos * 2}:
 		default:
 		}
 	}
@@ -171,10 +176,11 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 	}
 }
 
+// posOfLocked 返回 req 排在前面的请求数（不含自己）。需持有 q.mu。
 func (q *RequestQueue) posOfLocked(req *QueuedRequest) int {
 	for i, r := range q.pending {
 		if r == req {
-			return i + 1
+			return i
 		}
 	}
 	return len(q.pending)

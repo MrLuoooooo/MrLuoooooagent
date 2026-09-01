@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/stock"
 	stockdb "github.com/MrLuoooooo/MrLuoooooagent/internal/stock/db"
@@ -32,7 +33,12 @@ func (h *StockHandler) KLine(c *gin.Context) {
 	period := c.DefaultQuery("period", "day")
 	limit := 120
 	if v := c.Query("limit"); v != "" {
-		c.BindQuery(&struct{ Limit int }{})
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 500 {
+			c.JSON(http.StatusOK, gin.H{"code": 1, "message": "limit must be an integer in [1, 500]"})
+			return
+		}
+		limit = n
 	}
 
 	data, err := h.collector.FetchKLine(c.Request.Context(), code, period, limit)

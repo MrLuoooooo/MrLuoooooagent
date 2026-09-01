@@ -88,7 +88,12 @@ func (c *SinaClient) parseRealtime(code, raw string) (*StockData, error) {
 }
 
 func (c *SinaClient) GetKLineData(ctx context.Context, code, period string, limit int) ([]KLineData, error) {
-	scale := sinaPeriod(period)
+	scale, ok := sinaPeriod(period)
+	if !ok {
+		// 新浪 scale 是分钟粒度，只支持 日/周/月。不支持的周期必须显式报错走
+		// failover（东财支持季/半年/年），绝不能静默降级成日K数据冒充返回。
+		return nil, fmt.Errorf("sina does not support period %q", period)
+	}
 	url := fmt.Sprintf("http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=%s&scale=%s&ma=no&datalen=%d", code, scale, limit)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -141,11 +146,12 @@ func (c *SinaClient) parseKLine(code string, data []byte) ([]KLineData, error) {
 	return result, nil
 }
 
-func sinaPeriod(p string) string {
+// sinaPeriod 周期 → 新浪 scale（分钟粒度）。季/半年/年不支持，调用方须处理 ok=false。
+func sinaPeriod(p string) (string, bool) {
 	switch p {
-	case "day": return "240"
-	case "week": return "10080"
-	case "month": return "43200"
-	default: return "240"
+	case "day": return "240", true
+	case "week": return "10080", true
+	case "month": return "43200", true
+	default: return "", false
 	}
 }

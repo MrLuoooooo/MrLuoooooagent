@@ -83,10 +83,21 @@ func (c *EastMoneyClient) parseRealtime(code string, data []byte) (*StockData, e
 	}, nil
 }
 
+// klineFields1/klineFields2 东财 kline 接口必填的字段声明。
+// 实测（2026-09 容器内）：缺 fields1/fields2 时接口对任意 klt 都返回 rc:102 data:null，
+// 这曾导致 K 线所有周期无数据。字段集与解析所需的 open/close/high/low/vol/amount 对齐。
+const (
+	klineFields1 = "f1,f2,f3,f4,f5,f6"
+	klineFields2 = "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+	klineUT      = "fa5fd1943c7b386f172d6893dbfba10b"
+)
+
 func (c *EastMoneyClient) GetKLineData(ctx context.Context, code, period string, limit int) ([]KLineData, error) {
 	secid := toSecID(code)
 	klt := eastPeriod(period)
-	url := fmt.Sprintf("http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s&klt=%s&fqt=1&end=20500101&lmt=%d", secid, klt, limit)
+	url := fmt.Sprintf(
+		"http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s&ut=%s&fields1=%s&fields2=%s&klt=%s&fqt=1&end=20500101&lmt=%d",
+		secid, klineUT, klineFields1, klineFields2, klt, limit)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -221,11 +232,14 @@ func toSecID(code string) string {
 	return code
 }
 
+// eastPeriod 周期 → 东财 klt。2026-09 容器内实测：101日 102周 103月 104季 105半年 106年。
+// klt=104 返回的是季K（季末日期），年K是 106，不要凭网上流传的旧表写。
 func eastPeriod(p string) string {
 	switch p {
 	case "day": return "101"
 	case "week": return "102"
 	case "month": return "103"
+	case "year": return "106"
 	default: return "101"
 	}
 }

@@ -193,10 +193,13 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 
 		h.setupSSE(c)
 
-		// 排队状态 → 推前端等待提示（仅在有人排队时显示，避免"前面还有 0 人"）
+		// 排队状态 → 推前端等待提示。Position 由队列保证不含自己，单人时为 0。
 		if qr.NodeID == "queued" {
-			if cnt := h.svc.PendingCount(); cnt > 0 {
-				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %d 人，请稍候...", cnt)})
+			if qr.Position > 0 {
+				h.writeSSEEvent(c.Writer, model.StreamEvent{
+					Type:    "waiting",
+					Content: fmt.Sprintf("前面还有 %d 人，预计等待约 %d 秒", qr.Position, qr.EtaSeconds),
+				})
 			} else {
 				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: "正在处理中..."})
 			}
@@ -218,8 +221,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		// 从队列结果通道读取，可能包含 position 更新、token 和最终结果
 		for result := range qReq.ResultCh {
 			if result.NodeID == "position" {
-				// 队列位置更新
-				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: "waiting", Content: fmt.Sprintf("前面还有 %s 人", result.Err.Error())})
+				// 队列位置更新：Position 为排在前面的真实人数
+				h.writeSSEEvent(c.Writer, model.StreamEvent{
+					Type:    "waiting",
+					Content: fmt.Sprintf("前面还有 %d 人，预计等待约 %d 秒", result.Position, result.EtaSeconds),
+				})
 				continue
 			}
 			if result.NodeID == "error" {
@@ -314,9 +320,23 @@ func (h *ChatHandler) setupSSE(c *gin.Context) {
 	c.Writer.Flush()
 }
 
+// writeSSEEvent 写一条 SSE 事件并立即 Flush。
+// Flush 是逐 token 推送的关键：gin 的 ResponseWriter 满足 http.Flusher，
+// Agent 路径不经过 c.Stream，漏掉 Flush 会被 Go http 缓冲攒到 4KB 才发出，
+// 前端表现就是"一瞬间全量出现"。
 func (h *ChatHandler) writeSSEEvent(w io.Writer, evt model.StreamEvent) {
-	data, _ := json.Marshal(evt)
-	w.Write([]byte("data: " + string(data) + "\n\n"))
+	data, err := json.Marshal(evt)
+	if err != nil {
+		h.logger.Error("marshal sse event", zap.String("type", evt.Type), zap.Error(err))
+		return
+	}
+	if _, err := w.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
+		h.logger.Warn("write sse event", zap.String("type", evt.Type), zap.Error(err))
+		return
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 type emitFn func(chunk *schema.Message) *model.StreamEvent
