@@ -215,8 +215,10 @@ func (t *BashTool) InvokableRun(ctx context.Context, argsJSON string, opts ...to
 			}
 		}
 		if !allowed {
-			// Fall back to workspace root instead of blocking.
-			workDir = t.defaultDir
+			// Out-of-scope workDir must be rejected explicitly: silent fallback
+			// would make the model believe it is running in the requested
+			// directory while actually executing somewhere else.
+			return "", fmt.Errorf("execute_command: [SECURITY] 禁止访问工作目录（不在允许范围内）: %s", args.WorkDir)
 		}
 	}
 

@@ -27,7 +27,11 @@ func TestRetrievalEval(t *testing.T) {
 }
 
 // TestAgentE2E 跑 Agent 端到端测试。
+// 模板性质：stubRunner 是硬编码占位，永远无法覆盖标注集，直接跑必红。
+// 生产评估走 real_eval_integration_test.go（真实标注集 + 真实 agent）；
+// 接入真实 agent runner 后移除 Skip。
 func TestAgentE2E(t *testing.T) {
+	t.Skip("模板测试：需注入真实 agent runner，stub 占位无法覆盖标注集；见 real_eval_integration_test.go")
 	labels, err := LoadTestData("testdata/retrieval_labels.json")
 	if err != nil {
 		t.Skipf("skip agent E2E: %v", err)

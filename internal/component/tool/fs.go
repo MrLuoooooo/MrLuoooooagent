@@ -40,9 +40,30 @@ var sensitiveFile = map[string]bool{
 }
 var sensitiveGlob = []string{"id_rsa*", "*.pem", "*.key", ".ssh/*"}
 
+// blockedSystemPrefixes are Unix-style path prefixes that must never be touched.
+// Windows drive-letter paths (C:\Windows) are normalized to slashed form before
+// matching, so a single list covers both platforms.
+var blockedSystemPrefixes = []string{`/windows`, `/program files`, `/program files (x86)`, `/etc`, `/sys`, `/proc`}
+
+// checkBlockedSystemPath rejects system directories. Input must be lowercase
+// with all separators normalized to forward slashes.
+func checkBlockedSystemPath(lowerSlashed string) error {
+	for _, bad := range blockedSystemPrefixes {
+		if strings.HasPrefix(lowerSlashed, bad) {
+			return fmt.Errorf("禁止访问系统目录: %s", lowerSlashed)
+		}
+		// Windows drive-letter form: "x:/windows/..." → tail after "x:" matches.
+		if len(lowerSlashed) >= 2 && lowerSlashed[1] == ':' && strings.HasPrefix(lowerSlashed[2:], bad) {
+			return fmt.Errorf("禁止访问系统目录: %s", lowerSlashed)
+		}
+	}
+	return nil
+}
+
 // resolvePath converts a relative path to absolute under the project root.
 // Absolute paths are accepted only if they start with the project root or an explicit allowlist.
-// Windows paths (D:\...) are converted to container paths (/mnt/d/... or /D/...) in Docker.
+// On Linux/Docker, Windows paths (D:\...) are converted to container paths (/mnt/d/... or /D/...);
+// on a native Windows host paths are kept as-is.
 func resolvePath(input string) (string, error) {
 	if input == "" {
 		return "", fmt.Errorf("路径不能为空")
@@ -53,22 +74,31 @@ func resolvePath(input string) (string, error) {
 
 	// Detect Windows absolute path: D:\foo or D:/foo
 	if len(input) >= 2 && input[1] == ':' {
-		drive := string(input[0])
-		rest := strings.TrimLeft(input[3:], `/\`)
+		// Guard bare drive letters ("D:") — slicing input[3:] on them panics.
+		var rest string
+		if len(input) > 2 {
+			rest = strings.TrimLeft(input[3:], `/\`)
+		}
 		if rest == "" {
-			return "", fmt.Errorf("禁止写入驱动器根目录: %s", input)
+			return "", fmt.Errorf("禁止访问驱动器根目录: %s", input)
+		}
+		lowerSlashed := strings.ToLower(strings.ReplaceAll(input, `\`, `/`))
+		if err := checkBlockedSystemPath(lowerSlashed); err != nil {
+			return "", err
+		}
+		if isWindows {
+			// Native Windows host: filepath.Clean above already produced a valid
+			// Windows path; container conversion would corrupt it.
+			return input, nil
 		}
 		// Use container-aware path conversion (respects HOST_MNT_PREFIX).
-		containerPath := hostToContainer(drive + ":\\" + rest)
-		return containerPath, nil
+		drive := string(input[0])
+		return hostToContainer(drive + `:\` + rest), nil
 	}
 
 	if filepath.IsAbs(input) {
-		lower := strings.ToLower(input)
-		for _, bad := range []string{`/windows`, `/program files`, `/program files (x86)`, `/etc`, `/sys`, `/proc`} {
-			if strings.HasPrefix(lower, bad) {
-				return "", fmt.Errorf("禁止访问系统目录: %s", input)
-			}
+		if err := checkBlockedSystemPath(strings.ToLower(input)); err != nil {
+			return "", err
 		}
 		return input, nil
 	}

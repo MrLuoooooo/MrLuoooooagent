@@ -21,10 +21,27 @@ func SetWorkspaceRoot(path string) {
 }
 
 // hostToContainer converts a host path to a container-readable path.
+// Only meaningful when running inside Docker/Linux: it maps "D:\foo" to
+// "<HOST_MNT_PREFIX>/d/foo" (or legacy "/D/foo").
+// On a native Windows host (goagent.exe running locally) the input is already
+// a valid OS path, so it is returned unchanged — converting it would corrupt
+// every file operation (files silently written to a bogus "D:\D\..." tree).
 func hostToContainer(p string) string {
+	if isWindows {
+		return p
+	}
+	return hostToContainerUnix(p)
+}
+
+// hostToContainerUnix converts a Windows host path to container form.
+// Platform-independent pure function so Docker behavior stays testable on any OS.
+func hostToContainerUnix(p string) string {
 	if len(p) >= 2 && p[1] == ':' {
 		drive := strings.ToLower(string(p[0]))
-		rest := strings.TrimLeft(p[3:], `/\`)
+		if len(p) <= 2 {
+			return p
+		}
+		rest := strings.ReplaceAll(strings.TrimLeft(p[3:], `/\`), `\`, `/`)
 		if mnt := os.Getenv("HOST_MNT_PREFIX"); mnt != "" {
 			return mnt + "/" + drive + "/" + rest
 		}

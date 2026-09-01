@@ -114,12 +114,14 @@ func TestReadFile_NotFound(t *testing.T) {
 
 	tool := &ReadFileTool{}
 	args, _ := json.Marshal(map[string]string{"path": path})
-	_, err := tool.InvokableRun(context.Background(), string(args))
-	if err == nil {
-		t.Fatal("expected error for missing file")
+	// Design: a missing file returns a self-healing hint (not an error) so the
+	// LLM can recover by calling write_file itself.
+	result, err := tool.InvokableRun(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("missing file should return hint, not error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "不存在") {
-		t.Errorf("error should say '不存在', got: %v", err)
+	if !strings.Contains(result, "File not found") || !strings.Contains(result, "write_file") {
+		t.Errorf("expected self-healing hint, got: %s", result)
 	}
 }
 
@@ -136,7 +138,7 @@ func TestReadFile_MaxSize(t *testing.T) {
 		t.Fatalf("read_file: %v", err)
 	}
 	if !strings.Contains(result, "[WARNING]") {
-		t.Errorf("expected warning for large file, got: %s", result[:200])
+		t.Errorf("expected warning for large file, got: %s", result[:min(len(result), 200)])
 	}
 	if len(result) < 100 {
 		t.Errorf("result too short for max_size=100")
