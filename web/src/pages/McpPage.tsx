@@ -82,6 +82,10 @@ export default function McpPage() {
       if (result.code !== 0 || !result.connected) {
         setImportResult('❌ ' + (result.error || result.message || '连接失败'))
         if (result.server?.name) setConnectErrors(e => ({ ...e, [result.server!.name]: result.error || '' }))
+      } else if (result.mode === 'agent-managed') {
+        // agent-managed：导入即成功，无连接语义，Agent 按需读取项目文件
+        setImportResult('✅ 项目已导入（agent-managed 模式）：Agent 将按需读取项目文件，无需连接')
+        if (result.server?.name) setConnectedMap(m => ({ ...m, [result.server!.name as string]: true }))
       } else {
         setImportResult('✅ 连接成功，加载 ' + result.tool_count + ' 个工具')
         if (result.server?.name) setConnectedMap(m => ({ ...m, [result.server!.name as string]: true }))

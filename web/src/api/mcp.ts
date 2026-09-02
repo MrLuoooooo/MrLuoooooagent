@@ -19,6 +19,7 @@ export interface McpImportResult {
   server?: McpServer
   connected?: boolean
   tool_count?: number
+  mode?: string
   error?: string
   message?: string
 }

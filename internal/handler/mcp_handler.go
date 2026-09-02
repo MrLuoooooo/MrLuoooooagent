@@ -139,6 +139,7 @@ func (h *McpHandler) ImportZip(c *gin.Context) {
 	srv := detectProject(projectDir, name)
 	if srv.Transport == "" {
 		// 未识别 manifest — 仍然接受上传，让 Agent 后续改造
+		srv.Name = name // detectProject 未命中时返回零值结构体，漏 Name 会让列表出现空名条目
 		srv.Transport = "agent"
 		srv.Command = "true"
 		srv.Args = []string{}
@@ -170,10 +171,14 @@ func (h *McpHandler) ImportZip(c *gin.Context) {
 	}
 
 	resp := gin.H{
-		"code":     0,
-		"server":   srv,
+		"code":      0,
+		"server":    srv,
 		"connected": connErr == nil,
 		"tool_count": toolCount,
+	}
+	if srv.Transport == "agent" {
+		// agent-managed：无连接语义，导入即成功（前端按 mode 渲染文案）
+		resp["mode"] = "agent-managed"
 	}
 	if connErr != nil {
 		resp["error"] = connErr.Error()

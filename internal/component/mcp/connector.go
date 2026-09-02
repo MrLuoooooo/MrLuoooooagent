@@ -79,6 +79,14 @@ func (c *Connector) Connect(ctx context.Context) ([]tool.Tool, error) {
 }
 
 func (c *Connector) connectOne(ctx context.Context, srv config.MCPServer) ([]tool.Tool, error) {
+	if srv.Transport == "agent" {
+		// agent-managed 项目没有"连接"语义：文件由导入器落盘，系统 prompt
+		// 注入路径供 Agent 按需读取（graph/agent.go）。返回空工具的成功结果
+		// ——此前这里返回 error，导入成功也被 handler/前端渲染成失败。
+		c.logger.Info("mcp: agent-managed project, skip connect",
+			zap.String("server", srv.Name), zap.String("path", srv.URL))
+		return nil, nil
+	}
 	mcpClient, err := c.dial(ctx, srv)
 	if err != nil {
 		return nil, err

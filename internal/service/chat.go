@@ -73,13 +73,16 @@ func NewChatService(
 }
 
 // CleanupCheckpoint Agent 执行完毕后清理该会话的断点文件。
-// 断点只服务于中途恢复，回答完整产出后即失去价值，残留只会白占磁盘。
+// 断点只服务于中途恢复，回答完整产出后即失去价值，残留只会白占磁盘；
+// 更糟的是残留断点会让下次同会话请求触发 eino 图恢复重放，重放已失败
+// 的节点造成重复报错。因此用 WithoutCancel 剥离请求取消——流因超时/
+// 错误中断时请求 ctx 已死，带着它 Delete 必失败，断点清不掉。
 // 清理失败仅记 WARN：下次同会话 Set 会覆盖旧断点，不影响功能。
 func (s *ChatService) CleanupCheckpoint(ctx context.Context, convID string) {
 	if s.cpStore == nil {
 		return
 	}
-	if err := s.cpStore.Delete(ctx, convID); err != nil {
+	if err := s.cpStore.Delete(context.WithoutCancel(ctx), convID); err != nil {
 		s.logger.Warn("cleanup checkpoint",
 			zap.String("conv_id", convID), zap.Error(err))
 	}

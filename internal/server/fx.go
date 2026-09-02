@@ -509,7 +509,11 @@ func ProvideToolRegistry(cfg *config.Config, ragChain compose.Runnable[string, *
 	tool.Register(wrap(tool.NewBashTool(cfg.Server.AllowedDirs), wcfg))
 	tool.Register(wrap(tool.NewWriteAndExecuteTool(cfg.Server.AllowedDirs), wcfg))
 	tool.Register(wrap(&tool.DateTimeTool{}, wcfg))
-	tool.Register(wrap(tool.NewWebSearchTool(cfg.Search.BaseURL, cfg.Search.APIKey, cfg.Search.Engine, cfg.Search.Format, cfg.Search.Enabled), wcfg))
+	// web_search 仅在搜索启用时注册：死工具挂在模型菜单里，模型一选中
+	// 就 NodeRunError 打断全图（disabled 时工具自身另有软失败兜底）。
+	if cfg.Search.Enabled {
+		tool.Register(wrap(tool.NewWebSearchTool(cfg.Search.BaseURL, cfg.Search.APIKey, cfg.Search.Engine, cfg.Search.Format, cfg.Search.Enabled), wcfg))
+	}
 	tool.Register(wrap(tool.NewRAGTool(func(ctx context.Context, query string) (string, error) {
 		msg, err := ragChain.Invoke(ctx, query)
 		if err != nil { return "", err }

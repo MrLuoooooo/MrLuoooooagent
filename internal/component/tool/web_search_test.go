@@ -54,21 +54,26 @@ func TestWebSearchTool_Info(t *testing.T) {
 func TestWebSearchTool_InvokableRun_Disabled(t *testing.T) {
 	tool := NewWebSearchTool("https://api.example.com", "", "google", "", false)
 	args := `{"query":"test"}`
-	_, err := tool.InvokableRun(context.Background(), args)
-	if err == nil {
-		t.Fatal("expected error when search is disabled")
+	// disabled 是软失败：返回提示文案而非 error（error 会以 NodeRunError 打断 Agent 图）
+	result, err := tool.InvokableRun(context.Background(), args)
+	if err != nil {
+		t.Fatalf("disabled should soft-fail with nil error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "未启用") {
-		t.Errorf("error should mention 未启用, got: %v", err)
+	if !strings.Contains(result, "未启用") {
+		t.Errorf("result should mention 未启用, got: %q", result)
 	}
 }
 
 func TestWebSearchTool_InvokableRun_NoAPIKey(t *testing.T) {
 	tool := NewWebSearchTool("https://api.example.com", "", "google", "", true)
 	args := `{"query":"test"}`
-	_, err := tool.InvokableRun(context.Background(), args)
-	if err == nil {
-		t.Fatal("expected error when api_key is empty")
+	// 构造器将 enabled && apiKey!="" 归一化，无 key 等价 disabled → 软失败
+	result, err := tool.InvokableRun(context.Background(), args)
+	if err != nil {
+		t.Fatalf("no api_key should soft-fail with nil error, got: %v", err)
+	}
+	if !strings.Contains(result, "未启用") {
+		t.Errorf("result should mention 未启用, got: %q", result)
 	}
 }
 

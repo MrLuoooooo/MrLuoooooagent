@@ -84,9 +84,10 @@ func (w *WebSearchTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	}
 
 	if !w.enabled {
-		return "", fmt.Errorf(
-			"web_search: 搜索功能未启用。请在 config.yaml 中设置 search.enabled=true 并配置 search.api_key",
-		)
+		// 软失败而非 error：error 会让 ToolsNode 抛 NodeRunError 打断整个
+		// Agent 图，前端只剩半截话。把"未启用"作为工具结果交回，模型可
+		// 自行改用行情/K线等可用工具完成回答。
+		return "web_search 未启用：请在 config.yaml 设置 search.enabled=true 并配置 search.api_key。请基于已有工具（行情、K线等）继续回答用户问题。", nil
 	}
 
 	return w.search(ctx, args.Query)
