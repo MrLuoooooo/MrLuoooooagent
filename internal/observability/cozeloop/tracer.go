@@ -4,6 +4,7 @@
 package cozeloop
 
 import (
+	"context"
 	"fmt"
 
 	eino_callbacks "github.com/cloudwego/eino/callbacks"
@@ -70,6 +71,8 @@ func (t *Tracer) Close() {
 	if t == nil || t.client == nil {
 		return
 	}
-	t.client.Close(nil)
+	// 不传 nil ctx：CloseTrace 会把 ctx 透传给 otel spanProcessor.Shutdown，
+	// nil ctx 在部分实现里触发 nil interface 调用 panic。
+	t.client.Close(context.Background())
 	t.logger.Info("cozeloop: client closed, trace 队列已 flush")
 }
