@@ -18,10 +18,22 @@ type QueuedRequest struct {
 	UserMsg   *schema.Message
 	Question  string
 	Priority  int
-	Ctx       context.Context
-	Opts      []compose.Option // per-request 注入项（如工具收集 callback）
+	Ctx       context.Context    // 请求级 ctx：cozeloop root span / 客户端断连 / 业务 value
+	Opts      []compose.Option   // per-request 注入项（如工具收集 callback）
 	ResultCh  chan *QueueResult
 	CreatedAt time.Time
+	Timeout   time.Duration      // 执行期超时（排队等待不计入）；0 = 不限时
+	ExecDone  chan struct{}      // handler 排空流后 Done()，processNext 据此释放执行 ctx
+
+	execDoneOnce sync.Once // coalesced 请求多个 handler 共享 ExecDone，防 double close
+}
+
+// ExecDoneSignal handler 排空流后调用，通知 dispatcher 释放执行 ctx。
+// 幂等：coalesced 场景多个 handler 共享同一 ResultCh/ExecDone 也安全。
+func (r *QueuedRequest) ExecDoneSignal() {
+	if r.ExecDone != nil {
+		r.execDoneOnce.Do(func() { close(r.ExecDone) })
+	}
 }
 
 // QueueResult 排队结果。
@@ -69,6 +81,7 @@ func (q *RequestQueue) Submit(req *QueuedRequest) *QueueResult {
 	}
 
 	req.ResultCh = make(chan *QueueResult, 16)
+	req.ExecDone = make(chan struct{})
 	req.CreatedAt = time.Now()
 	q.pending = append(q.pending, req)
 	q.dedup[dedupKey] = req
@@ -154,8 +167,27 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 	q.mu.Unlock()
 
 	q.logger.Debug("queue: dispatching", zap.String("conv", req.ConvID), zap.Int("priority", req.Priority))
-	stream, err := graph.Stream(ctx, req.UserMsg, req.Opts...)
+
+	// 执行 ctx：优先用请求自带 ctx（handler 构造，含 cozeloop root span、
+	// baggage request_id、客户端断连信号）——此前这里用调度器的
+	// context.Background() 跑图，req.Ctx 存了没用，trace 树全断、
+	// 请求级取消也从未生效。调度器 ctx 仅作兜底（理论上不为 nil）。
+	execCtx := ctx
+	if req.Ctx != nil {
+		execCtx = req.Ctx
+	}
+	// 执行期超时在真正开跑时才施加：排队等待不吃预算（超时预算由
+	// handler 通过 req.Timeout 声明）。cancel 必须等 handler 排空流
+	// 之后才调用（ExecDone ack），提前 cancel 会腰斩执行中的流。
+	var cancel context.CancelFunc
+	if req.Timeout > 0 {
+		execCtx, cancel = context.WithTimeout(execCtx, req.Timeout)
+	}
+	stream, err := graph.Stream(execCtx, req.UserMsg, req.Opts...)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		req.ResultCh <- &QueueResult{Err: err, NodeID: "error"}
 		close(req.ResultCh)
 		return
@@ -167,6 +199,15 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 	// 是 SSE 输出重复/错乱的元凶之一。
 	req.ResultCh <- &QueueResult{Stream: stream, NodeID: "done"}
 	close(req.ResultCh)
+
+	// 等 handler 排空流（close ExecDone）后再释放 execCtx。
+	if cancel != nil && req.ExecDone != nil {
+		select {
+		case <-req.ExecDone:
+		case <-ctx.Done(): // 调度器生命周期兜底，防 handler 异常退出时永久阻塞
+		}
+		cancel()
+	}
 }
 
 // posOfLocked 返回 req 排在前面的请求数（不含自己）。需持有 q.mu。

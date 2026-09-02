@@ -197,10 +197,9 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		zap.String("prompt_version", graph.PromptVersion),
 		zap.String("mode", streamOrInvoke(req)),
 	)
-	// 请求级超时——从进入到回复完成，2 分钟封顶
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-	// 股票专精模式：注入 context key，Agent Graph 读取后切换 prompt
+	// 请求级 ctx 不再在这里套 120s 超时——排队等待会吃掉预算。改为把
+	// 原始请求 ctx（客户端断连 + 业务 value + cozeloop root span）入队，
+	// 执行期超时由 processNext 在真正开跑时施加（req.Timeout）。
 	if req.StockMode {
 		ctx = context.WithValue(ctx, graph.StockModeKey, true)
 		ctx = modelmanager.WithPriority(ctx, modelmanager.PrioStock)
@@ -236,7 +235,9 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		// 它下面——一次请求一棵 trace 树，罗盘与 zap 日志经 request_id 互查。
 		traceCtx, finishTrace := h.tracer.StartRequest(ctx, requestID)
 
-		// 产品级排队：永远不拒绝，入队即返回排队状态
+		// 产品级排队：永远不拒绝，入队即返回排队状态。
+		// Timeout：执行期 120s 封顶（排队不计入，processNext 开跑时才施加）；
+		// ExecDone：流排空后 close，通知 dispatcher 释放执行 ctx（不提前腰斩）。
 		qReq := &service.QueuedRequest{
 			ConvID:   convID,
 			UserMsg:  userMsg,
@@ -244,6 +245,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			Priority: prio,
 			Ctx:      traceCtx,
 			Opts:     opts,
+			Timeout:  120 * time.Second,
+			ExecDone: make(chan struct{}),
 		}
 		qr := h.svc.QueueSubmit(qReq)
 		defer finishTrace()
@@ -337,6 +340,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			}
 			result.Stream.Close()
 		}
+		// 流已排空：放行 dispatcher 释放执行 ctx（ExecDone ack，幂等）
+		qReq.ExecDoneSignal()
 
 		if full != "" {
 			// 工具调用回填落库（audit 复盘需要"解析后的工具调用"）：
