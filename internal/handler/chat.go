@@ -28,12 +28,29 @@ type ChatHandler struct {
 	svc     *service.ChatService
 	convSvc *service.ConversationService
 	tracer  *cozeloopobs.Tracer // 扣子罗盘 trace 上报，nil = 未启用
+	mm      *modelmanager.ModelManager
 	logger  *zap.Logger
 }
 
 // NewChatHandler —
-func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, logger *zap.Logger) *ChatHandler {
-	return &ChatHandler{svc: svc, convSvc: convSvc, tracer: tracer, logger: logger}
+func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, mm *modelmanager.ModelManager, logger *zap.Logger) *ChatHandler {
+	return &ChatHandler{svc: svc, convSvc: convSvc, tracer: tracer, mm: mm, logger: logger}
+}
+
+// modelName 审计用：本次 agent 流程实际使用的模型名。
+func (h *ChatHandler) modelName() string {
+	if h.mm == nil {
+		return ""
+	}
+	return h.mm.CurrentName()
+}
+
+// streamOrInvoke 审计用：区分流式/非流式。
+func streamOrInvoke(req model.ChatRequest) string {
+	if req.Stream {
+		return "stream"
+	}
+	return "invoke"
 }
 
 // Chat 入口：解析请求 → 自动建会话 → load 历史 → 按 stream/agent 分发。
@@ -114,7 +131,8 @@ func (h *ChatHandler) Chat(c *gin.Context) {
 	}
 
 	if req.Agent {
-		h.handleAgent(c, req, convID, originalQuestion)
+		rid := c.GetString("request_id")
+		h.handleAgent(c, req, convID, originalQuestion, rid)
 	} else if req.Stream {
 		h.handleStream(c, req, convID, originalQuestion)
 	} else {
@@ -168,8 +186,17 @@ func (h *ChatHandler) handleStream(c *gin.Context, req model.ChatRequest, convID
 	}
 }
 
-func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string) {
+func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID string, originalQuestion string, requestID string) {
 	ctx := c.Request.Context()
+	// 审计锚点：本次 agent 流程的模型/prompt 版本随日志落盘，
+	// 与 CozeLoop trace 的 baggage request_id 双向可查。
+	h.logger.Info("agent run start",
+		zap.String("request_id", requestID),
+		zap.String("conv_id", convID),
+		zap.String("model", h.modelName()),
+		zap.String("prompt_version", graph.PromptVersion),
+		zap.String("mode", streamOrInvoke(req)),
+	)
 	// 请求级超时——从进入到回复完成，2 分钟封顶
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
@@ -205,16 +232,21 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			opts = append(opts, compose.WithCallbacks(h.tracer.Handler()))
 		}
 
+		// 扣子罗盘 root span：baggage 携带 request_id，图内所有节点 span 挂到
+		// 它下面——一次请求一棵 trace 树，罗盘与 zap 日志经 request_id 互查。
+		traceCtx, finishTrace := h.tracer.StartRequest(ctx, requestID)
+
 		// 产品级排队：永远不拒绝，入队即返回排队状态
 		qReq := &service.QueuedRequest{
 			ConvID:   convID,
 			UserMsg:  userMsg,
 			Question: req.Question,
 			Priority: prio,
-			Ctx:      ctx,
+			Ctx:      traceCtx,
 			Opts:     opts,
 		}
 		qr := h.svc.QueueSubmit(qReq)
+		defer finishTrace()
 
 		h.setupSSE(c)
 
@@ -307,9 +339,20 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		}
 
 		if full != "" {
-			// 工具调用列表不出流（见上方边界检测注释），落库恒为 nil；
-			// 历史回放 prependHistory 因此不会渲染 [调用工具] 行，属已知行为。
-			if err := h.svc.SaveAssistantMessage(convID, full, nil); err != nil {
+			// 工具调用回填落库（audit 复盘需要"解析后的工具调用"）：
+			// bag 只在 OnStart 记录 ID/Name/Args（Result 另行回填），
+			// 转 schema.ToolCall 后走既有 tool_calls 列（MySQL JSON/ES object）。
+			var savedCalls []schema.ToolCall
+			for _, rec := range toolBag.Records {
+				if rec.ToolName == "" {
+					continue
+				}
+				savedCalls = append(savedCalls, schema.ToolCall{
+					ID:       rec.ToolCallID,
+					Function: schema.FunctionCall{Name: rec.ToolName, Arguments: rec.Args},
+				})
+			}
+			if err := h.svc.SaveAssistantMessage(convID, full, savedCalls); err != nil {
 				h.logger.Error("save agent assistant reply", zap.String("conv_id", convID), zap.Error(err))
 			}
 		}
@@ -318,15 +361,16 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		// 收口在 service 纯函数 CollectSources，done 前发一次供前端渲染。
 		sources := service.CollectSources(toolBag.Records)
 		for _, rec := range toolBag.Records {
-			args := rec.Args
-			if len(args) > 200 {
-				args = args[:200]
-			}
+			args := truncateStr(service.MaskSensitive(rec.Args), 200)
+			// 审计要求工具返回摘要落日志：截断 300 字符 + 脱敏
+			result := truncateStr(service.MaskSensitive(rec.Result), 300)
 			h.logger.Info("agent tool record",
 				zap.String("conv_id", convID),
+				zap.String("request_id", requestID),
 				zap.String("tool", rec.ToolName),
 				zap.String("args", args),
 				zap.Int("result_len", len(rec.Result)),
+				zap.String("result", result),
 			)
 		}
 		if len(sources) > 0 {

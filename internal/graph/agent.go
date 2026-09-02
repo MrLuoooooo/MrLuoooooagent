@@ -17,6 +17,10 @@ import (
 type contextKey string
 const StockModeKey contextKey = "stock_mode"
 
+// PromptVersion 系统/股票 prompt 的版本号：**改 prompt 内容时必须递增**。
+// 随每条 agent 日志落盘，复盘时用于对齐"当时模型看到的是哪一版提示词"。
+const PromptVersion = "2026-09-02"
+
 // AgentGraphOptions 控制 agent 图构造行为。
 // 主 agent 用默认值（全开）；子 agent 关闭与自身无关的上下文注入，
 // 避免共享全局状态（checkpoint/retrygate 由调用方保证独立实例）。

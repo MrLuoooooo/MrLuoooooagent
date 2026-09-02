@@ -65,6 +65,23 @@ func (t *Tracer) Handler() eino_callbacks.Handler {
 	return t.handler
 }
 
+// StartRequest 为单次 agent 请求创建根 span（baggage 携带 request_id），
+// 派生 ctx 传给图执行后所有节点 span 挂到它下面——保证一次请求一棵
+// trace 树，罗盘上每条 span 都能查到 request_id（审计关联键）。
+// 未启用时原样返回 ctx 和空 finish，调用方无需区分。
+func (t *Tracer) StartRequest(ctx context.Context, requestID string) (context.Context, func()) {
+	if t == nil || t.client == nil {
+		return ctx, func() {}
+	}
+	sctx, span := t.client.StartSpan(ctx, "agent_chat", "custom")
+	if requestID != "" {
+		span.SetBaggage(sctx, map[string]string{"request_id": requestID})
+	}
+	return sctx, func() {
+		span.Finish(sctx)
+	}
+}
+
 // Close 停止上报并 flush 异步队列。SDK 的 trace 数据走内存队列异步批量
 // 上报，进程退出前不 Close 会丢尾部数据——必须挂在 fx lifecycle OnStop。
 func (t *Tracer) Close() {

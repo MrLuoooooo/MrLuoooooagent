@@ -740,8 +740,8 @@ func ProvideCozeLoopTracer(cfg *config.Config, logger *zap.Logger) (*cozeloopobs
 	return cozeloopobs.New(&cfg.CozeLoop, logger)
 }
 
-func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, logger *zap.Logger) *handler.ChatHandler {
-	return handler.NewChatHandler(svc, convSvc, tracer, logger)
+func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, mm *modelmanager.ModelManager, logger *zap.Logger) *handler.ChatHandler {
+	return handler.NewChatHandler(svc, convSvc, tracer, mm, logger)
 }
 
 // HookCozeLoopClose 进程退出前 flush cozeloop 异步上报队列——
