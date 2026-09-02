@@ -145,16 +145,25 @@ func TestReadFile_MaxSize(t *testing.T) {
 	}
 }
 
-func TestReadFile_BlockSensitive(t *testing.T) {
+func TestReadFile_SensitiveMasked(t *testing.T) {
 	dir := tempDir(t)
 	path := filepath.Join(dir, ".env")
-	os.WriteFile(path, []byte("KEY=secret"), 0644)
+	os.WriteFile(path, []byte("MYSQL_PASSWORD=hunter2secret\nLOG_LEVEL=info"), 0644)
 
 	tool := &ReadFileTool{}
 	args, _ := json.Marshal(map[string]string{"path": path})
-	_, err := tool.InvokableRun(context.Background(), string(args))
-	if err == nil {
-		t.Fatal("should block .env reading")
+	result, err := tool.InvokableRun(context.Background(), string(args))
+	if err != nil {
+		t.Fatalf("sensitive file should be readable with masking, got: %v", err)
+	}
+	if !strings.Contains(result, "已脱敏") {
+		t.Errorf("result should note masking, got: %q", result)
+	}
+	if strings.Contains(result, "hunter2secret") {
+		t.Errorf("secret value leaked: %q", result)
+	}
+	if !strings.Contains(result, "LOG_LEVEL=info") {
+		t.Errorf("non-sensitive lines should stay: %q", result)
 	}
 }
 

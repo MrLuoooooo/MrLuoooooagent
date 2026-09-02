@@ -13,6 +13,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/callback"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/mask"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
 	cozeloopobs "github.com/MrLuoooooo/MrLuoooooagent/internal/observability/cozeloop"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
@@ -366,9 +367,9 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		// 收口在 service 纯函数 CollectSources，done 前发一次供前端渲染。
 		sources := service.CollectSources(toolBag.Records)
 		for _, rec := range toolBag.Records {
-			args := truncateStr(service.MaskSensitive(rec.Args), 200)
+			args := truncateStr(mask.MaskSensitive(rec.Args), 200)
 			// 审计要求工具返回摘要落日志：截断 300 字符 + 脱敏
-			result := truncateStr(service.MaskSensitive(rec.Result), 300)
+			result := truncateStr(mask.MaskSensitive(rec.Result), 300)
 			h.logger.Info("agent tool record",
 				zap.String("conv_id", convID),
 				zap.String("request_id", requestID),

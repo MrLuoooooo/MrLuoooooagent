@@ -1,4 +1,7 @@
-package service
+// Package mask 提供审计与工具输出的敏感信息脱敏。
+// 纯函数包：service 与 component/tool 共用（component 不得 import service，
+// 共享脱敏逻辑必须下沉到此层）。
+package mask
 
 import "regexp"
 
@@ -49,4 +52,18 @@ func minChars(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// envValueRe 匹配配置文件中敏感键的值（PASSWORD/SECRET/TOKEN/KEY 等），
+// 覆盖随机字符串类密钥——通用正则抓不到的由这里兜底。
+var envValueRe = regexp.MustCompile(`(?im)^([A-Za-z0-9_]*(PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Za-z0-9_]*)(\s*[=:]\s*)(\S+)`)
+
+// MaskConfigValues 对配置文件内容做键级脱敏：敏感键（含 PASSWORD/SECRET/
+// TOKEN/KEY 等字样）的值整体掩码，其余行原样保留。供 read_file 读取
+// .env/配置类敏感文件时使用——随机密码是通用正则抓不到的，必须按键名兜底。
+func MaskConfigValues(s string) string {
+	if s == "" {
+		return s
+	}
+	return envValueRe.ReplaceAllString(s, "$1$3****")
 }

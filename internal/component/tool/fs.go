@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/MrLuoooooo/MrLuoooooagent/internal/mask"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 )
@@ -191,13 +192,19 @@ func (t *ReadFileTool) InvokableRun(ctx context.Context, argsJSON string, opts .
 	if info.IsDir() {
 		return "", fmt.Errorf("read_file: %s 是一个目录，请使用 list_directory", path)
 	}
-	if isSensitiveFilePath(path) {
-		return "", fmt.Errorf("read_file: 安全限制 — 禁止读取敏感配置文件")
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read_file: 读取失败: %w", err)
+	}
+
+	// 敏感配置文件（.env 等）：脱敏放行而非硬拒绝。
+	// 硬拒绝会让 NodeRunError 打断整个 Agent 图且模型失去回答能力；
+	// 脱敏后模型能描述变量结构与非敏感内容，密钥值不可见。
+	// 写入/编辑/删除敏感文件仍是硬禁——改凭证没有正当性。
+	if isSensitiveFilePath(path) {
+		masked := mask.MaskConfigValues(mask.MaskSensitive(string(data)))
+		return "[敏感配置文件，以下内容已脱敏（密钥/密码值不可见）]\n" + masked, nil
 	}
 
 	// Binary detection
