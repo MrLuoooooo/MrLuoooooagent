@@ -329,6 +329,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 
 		// Agent 完成：清理 Eino 的 checkpoint（断点清理编排归 service）
 		h.svc.CleanupCheckpoint(ctx, convID)
+
+		// 与 streamSSE 对齐：收尾显式发 conversation_id + done，
+		// 前端不必依赖"连接关闭"这种隐式结束信号（error 路径除外）。
+		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventConversationID, Content: convID})
+		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventDone})
 		return
 	}
 
