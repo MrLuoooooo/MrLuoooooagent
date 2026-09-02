@@ -225,9 +225,8 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 
 		// qReq.ResultCh 由 Submit 保证非 nil
 		var full string
-		var toolCalls []schema.ToolCall
-		seenTools := make(map[string]bool)
 		phasePushed := make(map[string]bool)
+		toolRounds := 0 // 工具轮水位：跨整个请求生命周期，不随单个流对象重置
 
 		// Phase: 开始分析
 		h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【准备中】正在分析问题..."})
@@ -255,6 +254,11 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			for {
 				chunk, recvErr := result.Stream.Recv()
 				if recvErr != nil {
+					// 流中断不再静默：非 EOF 的错误（超时/上游断流）推给前端，
+					// 否则客户端把中断当正常结束，气泡停在半截话上。
+					if recvErr != io.EOF {
+						h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventError, Content: recvErr.Error()})
+					}
 					break
 				}
 				// Phase: 首次收到 token → 进入推理阶段
@@ -262,40 +266,40 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 					phasePushed["reasoning"] = true
 					h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【推理中】正在生成回答..."})
 				}
-				for _, tc := range chunk.ToolCalls {
-					if !seenTools[tc.ID] {
-						// Phase: 工具调用 → 执行阶段
-						if !phasePushed["executing"] {
-							phasePushed["executing"] = true
-							h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【执行中】正在调用工具获取数据..."})
-						}
-					seenTools[tc.ID] = true
-					h.writeSSEEvent(c.Writer, model.StreamEvent{
-							Type:     model.EventToolCall,
-							Tool:     fmt.Sprintf("%s(%s)", tc.Function.Name, tc.Function.Arguments),
-							ToolName: tc.Function.Name,
-							ToolArgs: tc.Function.Arguments,
-						})
+				// 工具轮边界检测：parse_tool_calls 会剥掉流式 chunk 的 ToolCalls
+				// （聚合消息走 branch 进 tools 节点，不出流），所以 chunk.ToolCalls
+				// 恒空、tool_call SSE 事件在此图拓扑下不可达。bag 由工具 callback
+				// 并发填充，其增长即"上一轮工具已执行、即将进入新一轮生成"——
+				// 此前累积的文本是中间播报：通知前端清空气泡，落库只存最终轮
+				// （此前两轮全文拼接落库，气泡重复的根因）。
+				if n := len(toolBag.Records); n > toolRounds {
+					toolRounds = n
+					if !phasePushed["executing"] {
+						phasePushed["executing"] = true
+						h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventPhase, Content: "【执行中】正在调用工具获取数据..."})
+					}
+					if full != "" {
+						h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventClear})
+						full = ""
 					}
 				}
-			if chunk.Role == schema.Tool {
-				h.writeSSEEvent(c.Writer, model.StreamEvent{
+				if chunk.Role == schema.Tool {
+					h.writeSSEEvent(c.Writer, model.StreamEvent{
 						Type:    model.EventToolResult,
 						Content: toWindowsPath(chunk.Content),
 					})
 					continue
 				}
 				full += chunk.Content
-				if len(chunk.ToolCalls) > 0 {
-					toolCalls = chunk.ToolCalls
-				}
 				h.writeSSEEvent(c.Writer, model.StreamEvent{Type: model.EventToken, Content: stripToolCode(chunk.Content)})
 			}
 			result.Stream.Close()
 		}
 
 		if full != "" {
-			if err := h.svc.SaveAssistantMessage(convID, full, toolCalls); err != nil {
+			// 工具调用列表不出流（见上方边界检测注释），落库恒为 nil；
+			// 历史回放 prependHistory 因此不会渲染 [调用工具] 行，属已知行为。
+			if err := h.svc.SaveAssistantMessage(convID, full, nil); err != nil {
 				h.logger.Error("save agent assistant reply", zap.String("conv_id", convID), zap.Error(err))
 			}
 		}

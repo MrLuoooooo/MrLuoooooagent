@@ -49,4 +49,5 @@ const (
 	EventWaiting        = "waiting" // 排队等待中，content 含排队信息
 	EventPhase          = "phase"   // Agent 思考阶段，content 含当前步骤描述
 	EventSources        = "sources" // 回复引用的数据来源，done 前发一次
+	EventClear          = "clear"   // ReAct 迭代边界：清空当前气泡文本，后续 token 为最终轮回答
 )

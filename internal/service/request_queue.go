@@ -160,21 +160,13 @@ func (q *RequestQueue) processNext(ctx context.Context, graph compose.Runnable[*
 		close(req.ResultCh)
 		return
 	}
+	// 只投递整条流一次，消费权完全归 handler。
+	// 此前这里还二次泵送：dispatcher 自己 Recv 同一条流、把抢到的 chunk
+	// 再包成单元素流投递——与 handler 形成双读者竞争（StreamReader 非并发
+	// 安全，内容交错碎裂），且 handler 每收到一个碎片流都要重新处理边界，
+	// 是 SSE 输出重复/错乱的元凶之一。
 	req.ResultCh <- &QueueResult{Stream: stream, NodeID: "done"}
-
-	for {
-		msg, recvErr := stream.Recv()
-		if recvErr != nil {
-			close(req.ResultCh)
-			return
-		}
-		select {
-		case req.ResultCh <- &QueueResult{Stream: schema.StreamReaderFromArray([]*schema.Message{msg}), NodeID: "token"}:
-		case <-ctx.Done():
-			close(req.ResultCh)
-			return
-		}
-	}
+	close(req.ResultCh)
 }
 
 // posOfLocked 返回 req 排在前面的请求数（不含自己）。需持有 q.mu。

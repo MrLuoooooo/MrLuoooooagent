@@ -2,6 +2,7 @@ import type { Message } from '../types/chat'
 import { Bot, User } from 'lucide-react'
 import ToolCallBadge from './ToolCallBadge'
 import SourcesList from './SourcesList'
+import MarkdownContent from './MarkdownContent'
 
 interface ChatBubbleProps {
   message: Message
@@ -35,12 +36,14 @@ export default function ChatBubble({ message, showAvatar, isStreaming }: ChatBub
             : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-md border border-gray-200/50 dark:border-gray-700/50'
         }`}
       >
-        <span className="whitespace-pre-wrap break-words">
-          {message.content}
-          {isStreaming && (
-            <span className="inline-block w-[2px] h-4 ml-0.5 bg-blue-500 dark:bg-blue-400 animate-blink rounded-sm" />
-          )}
-        </span>
+        {isUser ? (
+          <span className="whitespace-pre-wrap break-words">{message.content}</span>
+        ) : (
+          <MarkdownContent content={message.content} />
+        )}
+        {isStreaming && (
+          <span className="inline-block w-[2px] h-4 ml-0.5 bg-blue-500 dark:bg-blue-400 animate-blink rounded-sm align-middle" />
+        )}
       </div>
 
       {message.toolCalls && message.toolCalls.length > 0 && (

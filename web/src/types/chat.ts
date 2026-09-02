@@ -12,7 +12,7 @@ export interface SourceRef {
 }
 
 export interface StreamEvent {
-  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id' | 'waiting' | 'phase' | 'sources'
+  type: 'token' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'conversation_id' | 'waiting' | 'phase' | 'sources' | 'clear'
   content?: string
   tool?: string
   tool_name?: string

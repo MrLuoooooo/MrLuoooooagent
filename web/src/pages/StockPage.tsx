@@ -3,6 +3,7 @@ import { Send, Bot, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react'
 import StockChart from '../components/StockChart'
 import StockSearch from '../components/StockSearch'
 import SourcesList from '../components/SourcesList'
+import MarkdownContent from '../components/MarkdownContent'
 import { fetchKLine, fetchRealtime } from '../api/stock'
 import type { KLineItem, StockRealtime } from '../types/stock'
 import type { SourceRef } from '../types/chat'
@@ -27,7 +28,9 @@ export default function StockPage() {
   const [period, setPeriod] = useState('day')
   const [klineLoading, setKlineLoading] = useState(false)
   const [klineError, setKlineError] = useState<string | null>(null)
+  const [histError, setHistError] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
+  const histSeq = useRef(0) // 竞态守卫：快速切换标的时旧响应不得覆盖新响应
 
   const loadData = useCallback(async (code: string) => {
     // K 线与实时行情分开处理：行情失败可以静默（页面还有 K 线可看），
@@ -55,13 +58,15 @@ export default function StockPage() {
   }, [messages])
 
   // 历史消息：每只股票对应固定会话 stock_<code>（后端 Ensure 按需创建），
-  // 挂载与切换标的时拉取。失败静默降级为空历史，不阻塞行情展示。
-  useEffect(() => {
-    if (!selectedCode || streaming) return
-    let cancelled = false
-    getConversationMessages(`stock_${selectedCode}`)
+  // 挂载与切换标的时拉取。失败显式提示可重试——静默吞错曾把"后端未就绪
+  // 时代理 500"伪装成"没有会话记录"，用户无从分辨。
+  const loadHistory = useCallback((code: string) => {
+    if (!code) return
+    const seq = ++histSeq.current
+    setHistError(false)
+    getConversationMessages(`stock_${code}`)
       .then((resp) => {
-        if (cancelled) return
+        if (seq !== histSeq.current) return
         setMessages(
           resp.messages.map((m) => ({
             role: m.role === 'user' ? 'user' : 'assistant',
@@ -69,10 +74,14 @@ export default function StockPage() {
           })),
         )
       })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
+      .catch(() => {
+        if (seq === histSeq.current) setHistError(true)
+      })
+  }, [])
+
+  useEffect(() => {
+    if (!selectedCode || streaming) return
+    loadHistory(selectedCode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCode])
 
@@ -110,6 +119,12 @@ export default function StockPage() {
                   tc.status = 'done'
                 }
               }
+            } else if (evt.type === 'clear') {
+              // ReAct 迭代边界：此前文本是中间播报，清空等最终轮回答
+              last.content = ''
+            } else if (evt.type === 'error') {
+              // 后端流中断不再静默：把中断显示在气泡里，而非停在半截话
+              last.content += (last.content ? '\n\n' : '') + `⚠️ 回答生成中断：${evt.content || '未知错误'}`
             } else if (evt.type === 'sources') {
               last.sources = evt.sources || []
             }
@@ -192,6 +207,17 @@ export default function StockPage() {
           </div>
 
           <div className="px-4 pb-4 space-y-3">
+            {histError && (
+              <div className="flex items-center justify-center gap-2 py-2 rounded-lg border border-amber-800/50 bg-amber-950/20 text-xs text-amber-400">
+                <span>历史消息加载失败</span>
+                <button
+                  onClick={() => loadHistory(selectedCode)}
+                  className="px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-300"
+                >
+                  重试
+                </button>
+              </div>
+            )}
             {messages.map((msg, i) => (
               <div
                 key={i}
@@ -213,9 +239,11 @@ export default function StockPage() {
                       {tc.result && <div className="text-gray-400 mt-0.5 truncate">{tc.result.slice(0, 80)}</div>}
                     </div>
                   ))}
-                  {msg.content || (msg.role === 'assistant' && streaming ? (
+                  {msg.content ? (
+                    <MarkdownContent content={msg.content} />
+                  ) : msg.role === 'assistant' && streaming ? (
                     <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse rounded-sm align-middle" />
-                  ) : null)}
+                  ) : null}
                   {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                     <SourcesList sources={msg.sources} />
                   )}
