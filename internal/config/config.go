@@ -63,6 +63,13 @@ func Load() (*Config, error) {
 	if key := os.Getenv("GOAGENT_SEARCH_API_KEY"); key != "" {
 		cfg.Search.APIKey = key
 	}
+	// 扣子罗盘 token 走 .env，不落 yaml（同 Search.APIKey 模式）。
+	if key := os.Getenv("GOAGENT_COZELOOP_API_TOKEN"); key != "" {
+		cfg.CozeLoop.APIToken = key
+	}
+	if id := os.Getenv("GOAGENT_COZELOOP_WORKSPACE_ID"); id != "" {
+		cfg.CozeLoop.WorkspaceID = id
+	}
 
 	// MySQL 主库连接信息走环境变量，不硬编码进 yaml。
 	// 优先用完整 DSN；未提供时用分项（MYSQL_HOST/PORT/USER/PASSWORD/DATABASE）拼装，
@@ -151,6 +158,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("search.base_url", "https://serpapi.com/search")
 	v.SetDefault("search.engine", "google")
 	v.SetDefault("search.format", "serpapi")
+
+	v.SetDefault("cozeloop.enabled", false)
+	v.SetDefault("cozeloop.api_token", "")
+	v.SetDefault("cozeloop.workspace_id", "")
+	v.SetDefault("cozeloop.base_url", "")
 
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.file_path", "./logs/goagent.log")

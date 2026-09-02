@@ -33,6 +33,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/handler"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/indicator"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/alert"
+	cozeloopobs "github.com/MrLuoooooo/MrLuoooooagent/internal/observability/cozeloop"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/logger"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/pipeline"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/prompt"
@@ -733,8 +734,23 @@ func ProvideConvService(cfg *config.Config, db *gorm.DB, esStore *store.ESConver
 	return service.NewConversationService(convStore, logger)
 }
 
-func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *handler.ChatHandler {
-	return handler.NewChatHandler(svc, convSvc, logger)
+// ProvideCozeLoopTracer 扣子罗盘 trace 上报器；未启用返回 nil tracer（优雅禁用），
+// 上报失败/未配置绝不阻断主流程。
+func ProvideCozeLoopTracer(cfg *config.Config, logger *zap.Logger) (*cozeloopobs.Tracer, error) {
+	return cozeloopobs.New(&cfg.CozeLoop, logger)
+}
+
+func ProvideChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, logger *zap.Logger) *handler.ChatHandler {
+	return handler.NewChatHandler(svc, convSvc, tracer, logger)
+}
+
+// HookCozeLoopClose 进程退出前 flush cozeloop 异步上报队列——
+// trace 数据走内存队列批量发送，不 Close 会丢尾部数据。
+func HookCozeLoopClose(lc fx.Lifecycle, tracer *cozeloopobs.Tracer) {
+	lc.Append(fx.Hook{OnStop: func(ctx context.Context) error {
+		tracer.Close()
+		return nil
+	}})
 }
 
 func ProvideCronScheduler(cfg *config.Config, agent compose.Runnable[*eino_schema.Message, *eino_schema.Message], logger *zap.Logger, approvals *service.ApprovalStore) *scheduler.CronScheduler {
@@ -855,6 +871,7 @@ var Module = fx.Module("goagent",
 		ProvideMcpHandler,
 		ProvideWorkspaceHandler,
 		ProvideFeedbackHandler,
+		ProvideCozeLoopTracer,
 		ProvideChatHandler,
 		ProvideConvHandler,
 		ProvideDocHandler,
@@ -863,6 +880,7 @@ var Module = fx.Module("goagent",
 		ProvideRouter,
 	),
 	stockapi.Module,
+	fx.Invoke(HookCozeLoopClose),
 	fx.Invoke(func(logger *zap.Logger) {
 		handler := callback.NewLoggingCallback(logger)
 		callbacks.AppendGlobalHandlers(handler)

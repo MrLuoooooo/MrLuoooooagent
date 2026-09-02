@@ -22,6 +22,16 @@ type Config struct {
 	MCP           MCPConfig           `mapstructure:"mcp"`
 	SubAgents     SubAgentsConfig     `mapstructure:"sub_agents"`
 	SemanticCache SemanticCacheConfig `mapstructure:"semantic_cache"`
+	CozeLoop      CozeLoopConfig      `mapstructure:"cozeloop"`
+}
+
+// CozeLoopConfig 扣子罗盘 trace 上报配置。
+// APIToken 建议走 .env 的 GOAGENT_COZELOOP_API_TOKEN，不落 yaml。
+type CozeLoopConfig struct {
+	Enabled     bool   `mapstructure:"enabled"`
+	APIToken    string `mapstructure:"api_token"`
+	WorkspaceID string `mapstructure:"workspace_id"`
+	BaseURL     string `mapstructure:"base_url"` // 自建 coze-loop 服务端地址；空 = SaaS loop.coze.cn
 }
 
 // SemanticCacheConfig 语义缓存配置（非流式 RAG 分支）。

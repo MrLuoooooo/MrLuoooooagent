@@ -51,6 +51,11 @@ search:
   api_key: ""
   base_url: "https://serpapi.com/search"
   engine: "google"
+cozeloop:                # 扣子罗盘 trace 上报（https://loop.coze.cn）
+  enabled: false         # 开启前先在 .env 配 GOAGENT_COZELOOP_API_TOKEN（个人访问令牌）
+  api_token: ""
+  workspace_id: ""       # 扣子罗盘工作空间 ID
+  base_url: ""           # 自建 coze-loop 服务端地址，留空 = SaaS
 conversation:
   max_history: 20
   storage_type: "mysql"   # mysql | es | memory；主库选型开关，改完重启生效

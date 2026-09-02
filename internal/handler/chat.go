@@ -14,6 +14,7 @@ import (
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/component/modelmanager"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/graph"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/model"
+	cozeloopobs "github.com/MrLuoooooo/MrLuoooooagent/internal/observability/cozeloop"
 	"github.com/MrLuoooooo/MrLuoooooagent/internal/service"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
@@ -26,12 +27,13 @@ import (
 type ChatHandler struct {
 	svc     *service.ChatService
 	convSvc *service.ConversationService
+	tracer  *cozeloopobs.Tracer // 扣子罗盘 trace 上报，nil = 未启用
 	logger  *zap.Logger
 }
 
 // NewChatHandler —
-func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, logger *zap.Logger) *ChatHandler {
-	return &ChatHandler{svc: svc, convSvc: convSvc, logger: logger}
+func NewChatHandler(svc *service.ChatService, convSvc *service.ConversationService, tracer *cozeloopobs.Tracer, logger *zap.Logger) *ChatHandler {
+	return &ChatHandler{svc: svc, convSvc: convSvc, tracer: tracer, logger: logger}
 }
 
 // Chat 入口：解析请求 → 自动建会话 → load 历史 → 按 stream/agent 分发。
@@ -195,6 +197,14 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 		toolBag := &callback.ToolResultsBag{}
 		cb := callback.NewToolCollector(toolBag)
 
+		opts := []compose.Option{compose.WithCallbacks(cb)}
+		// 扣子罗盘 trace：注入后 cozeloop handler 会为本次 agent 图执行
+		// 建根 span，chat_model / tools / lambda 各节点一个子 span，
+		// loop.coze.cn 的 Trace 页可回放完整流程。
+		if h.tracer != nil {
+			opts = append(opts, compose.WithCallbacks(h.tracer.Handler()))
+		}
+
 		// 产品级排队：永远不拒绝，入队即返回排队状态
 		qReq := &service.QueuedRequest{
 			ConvID:   convID,
@@ -202,7 +212,7 @@ func (h *ChatHandler) handleAgent(c *gin.Context, req model.ChatRequest, convID 
 			Question: req.Question,
 			Priority: prio,
 			Ctx:      ctx,
-			Opts:     []compose.Option{compose.WithCallbacks(cb)},
+			Opts:     opts,
 		}
 		qr := h.svc.QueueSubmit(qReq)
 
