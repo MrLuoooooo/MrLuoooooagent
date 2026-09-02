@@ -57,7 +57,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - /mnt:/mnt:rw
+      # 容器内 /mnt 是 docker-desktop VM 的（非 WSL 的），Windows D 盘在 VM 里
+      # 是 /mnt/host/d——直接挂 /mnt 会让 workspace 工具 stat /mnt/d/... 失败
+      - /mnt/host/d:/mnt/d:rw
       - app_logs:/var/log/goagent
       - mcp_projects:/var/lib/goagent-projects
     depends_on:
