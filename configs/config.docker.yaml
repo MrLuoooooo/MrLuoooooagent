@@ -65,6 +65,11 @@ search:
   api_key: ""
   base_url: "https://serpapi.com/search"
   engine: "google"
+cozeloop:                # 扣子罗盘 trace 上报（https://loop.coze.cn）
+  enabled: true
+  api_token: ""          # 留空走 .env 的 GOAGENT_COZELOOP_API_TOKEN
+  workspace_id: "7680790905028591631"
+  base_url: ""           # 自建 coze-loop 服务端地址，留空 = SaaS
 conversation:
   max_history: 20
   storage_type: "mysql"

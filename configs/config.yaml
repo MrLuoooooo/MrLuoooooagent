@@ -52,9 +52,9 @@ search:
   base_url: "https://serpapi.com/search"
   engine: "google"
 cozeloop:                # 扣子罗盘 trace 上报（https://loop.coze.cn）
-  enabled: false         # 开启前先在 .env 配 GOAGENT_COZELOOP_API_TOKEN（个人访问令牌）
+  enabled: true          # token 在 .env 配好后重启即生效
   api_token: ""
-  workspace_id: ""       # 扣子罗盘工作空间 ID
+  workspace_id: "7680790905028591631"       # 扣子罗盘工作空间 ID（左上角空间切换器复制按钮获取）
   base_url: ""           # 自建 coze-loop 服务端地址，留空 = SaaS
 conversation:
   max_history: 20
